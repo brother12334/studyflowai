@@ -112,7 +112,6 @@ body {
 
 #subjectList { margin-top: 16px; flex: 1; overflow-y: auto; }
 
-/* subject card — flex row with info + action buttons */
 .subject-card {
   background: var(--bg-card);
   border: 1px solid transparent;
@@ -129,12 +128,12 @@ body {
 .subject-info p  { font-size: 0.72rem; color: var(--text-secondary); }
 
 .subject-actions { display: flex; gap: 4px; padding: 0 8px; opacity: 0; transition: opacity 0.2s; }
-.subject-card:hover .subject-actions, .subject-card.active .subject-actions { opacity: 1; }
+.subject-card:hover .subject-actions,
+.subject-card.active .subject-actions { opacity: 1; }
 
 .subject-action-btn {
   border: none; border-radius: 8px; padding: 5px 7px;
-  cursor: pointer; font-size: 0.8rem; transition: 0.15s;
-  line-height: 1;
+  cursor: pointer; font-size: 0.8rem; transition: 0.15s; line-height: 1;
 }
 .rename-btn { background: var(--rename-btn-bg); color: var(--rename-btn-color); }
 .rename-btn:hover { filter: brightness(1.2); }
@@ -228,40 +227,107 @@ body {
 #output p  { margin-bottom: 10px; line-height: 1.7; }
 
 /* ========================= */
-/* FLASHCARD UI              */
+/* FLASHCARD UI — FIXED      */
+/* Buttons are BESIDE the    */
+/* card, never behind it.    */
 /* ========================= */
-.fc-wrap { display: flex; flex-direction: column; align-items: center; gap: 16px; padding: 6px 0 2px; }
-.fc-progress-bar { width: 100%; height: 5px; background: var(--bg-btn-ghost); border-radius: 10px; overflow: hidden; }
-.fc-progress-fill { height: 100%; background: linear-gradient(90deg, var(--accent2), var(--accent)); border-radius: 10px; transition: width 0.4s ease; }
-.fc-counter { font-size: 0.8rem; color: var(--text-secondary); align-self: flex-end; }
+.fc-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  padding: 6px 0 2px;
+  width: 100%;
+}
 
-.fc-card { width: 100%; max-width: 600px; height: 260px; cursor: pointer; perspective: 1200px; border-radius: 20px; }
-.fc-inner { position: relative; width: 100%; height: 100%; transition: transform 0.55s cubic-bezier(0.4,0.2,0.2,1); transform-style: preserve-3d; }
+.fc-top-bar {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.fc-progress-bar {
+  width: 100%;
+  height: 5px;
+  background: var(--bg-btn-ghost);
+  border-radius: 10px;
+  overflow: hidden;
+}
+.fc-progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--accent2), var(--accent));
+  border-radius: 10px;
+  transition: width 0.4s ease;
+}
+.fc-counter {
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  align-self: flex-end;
+}
+
+/* Row: [← Prev]  [card]  [Next →] */
+.fc-nav {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+}
+
+.fc-nav-btn {
+  flex-shrink: 0;
+  padding: 10px 18px;
+  border: none;
+  border-radius: 12px;
+  background: var(--bg-btn-ghost);
+  color: var(--text-primary);
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 0.88rem;
+  transition: 0.2s;
+  white-space: nowrap;
+  z-index: 1;
+}
+.fc-nav-btn:hover:not(:disabled) { background: var(--bg-btn-ghost-hover); transform: translateY(-2px); }
+.fc-nav-btn:disabled { opacity: 0.22; cursor: not-allowed; }
+
+/* Card fills remaining space between the two buttons */
+.fc-card {
+  flex: 1;
+  min-width: 0;
+  height: 220px;
+  cursor: pointer;
+  perspective: 1200px;
+  border-radius: 20px;
+}
+
+.fc-inner {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  transition: transform 0.55s cubic-bezier(0.4,0.2,0.2,1);
+  transform-style: preserve-3d;
+}
 .fc-inner.flipped { transform: rotateY(180deg); }
 
 .fc-front, .fc-back {
-  position: absolute; inset: 0; border-radius: 20px; padding: 28px 32px;
+  position: absolute; inset: 0; border-radius: 20px; padding: 20px 24px;
   backface-visibility: hidden; display: flex; flex-direction: column;
-  justify-content: center; align-items: center; text-align: center; gap: 12px;
+  justify-content: center; align-items: center; text-align: center; gap: 10px;
 }
 .fc-front { background: linear-gradient(135deg, #4f46e5, #7c3aed); box-shadow: 0 8px 30px rgba(79,70,229,0.4); color: #fff; }
 .fc-back  { background: linear-gradient(135deg, #065f46, #0d9488); box-shadow: 0 8px 30px rgba(13,148,136,0.4); color: #fff; transform: rotateY(180deg); }
 
-.fc-side-label { font-size: 0.68rem; font-weight: 700; text-transform: uppercase; letter-spacing: 1.5px; opacity: 0.65; }
-.fc-text { font-size: 1.05rem; font-weight: 500; line-height: 1.5; max-width: 480px; }
-.fc-hint { font-size: 0.72rem; opacity: 0.45; margin-top: auto; }
-
-.fc-nav { display: flex; align-items: center; gap: 18px; width: 100%; max-width: 600px; justify-content: space-between; }
-.fc-nav-btn { padding: 10px 22px; border: none; border-radius: 12px; background: var(--bg-btn-ghost); color: var(--text-primary); cursor: pointer; font-weight: 600; font-size: 0.88rem; transition: 0.2s; }
-.fc-nav-btn:hover:not(:disabled) { background: var(--bg-btn-ghost-hover); transform: translateY(-2px); }
-.fc-nav-btn:disabled { opacity: 0.22; cursor: not-allowed; }
-
-.fc-dot-row { display: flex; gap: 6px; flex-wrap: wrap; justify-content: center; max-width: 280px; }
-.fc-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--bg-btn-ghost-hover); transition: 0.2s; }
-.fc-dot-active { background: var(--accent); transform: scale(1.3); }
+.fc-side-label { font-size: 0.65rem; font-weight: 700; text-transform: uppercase; letter-spacing: 1.5px; opacity: 0.65; }
+.fc-text { font-size: 0.97rem; font-weight: 500; line-height: 1.45; width: 100%; }
+.fc-hint { font-size: 0.68rem; opacity: 0.45; margin-top: auto; }
 
 .fc-actions { display: flex; gap: 12px; }
-.fc-action-btn { padding: 8px 18px; border: none; border-radius: 10px; background: var(--bg-btn-ghost); color: var(--text-primary); cursor: pointer; font-size: 0.82rem; transition: 0.2s; }
+.fc-action-btn {
+  padding: 8px 18px; border: none; border-radius: 10px;
+  background: var(--bg-btn-ghost); color: var(--text-primary);
+  cursor: pointer; font-size: 0.82rem; transition: 0.2s;
+}
 .fc-action-btn:hover { background: var(--bg-btn-ghost-hover); }
 
 /* ========================= */
@@ -359,9 +425,12 @@ body {
   .top-bar { flex-direction: column; gap: 20px; align-items: flex-start; }
   .tools-grid { grid-template-columns: repeat(2, 1fr); }
 }
+@media (max-width: 600px) {
+  .fc-nav-btn { padding: 8px 10px; font-size: 0.78rem; }
+  .fc-card { height: 200px; }
+  .fc-text { font-size: 0.88rem; }
+}
 @media (max-width: 480px) {
   .tools-grid { grid-template-columns: 1fr; }
   .stats-container { flex-wrap: wrap; }
-  .fc-card { height: 220px; }
-  .fc-text { font-size: 0.92rem; }
 }
