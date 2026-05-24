@@ -1,10 +1,10 @@
 // =========================
 // STUDYFLOW AI — FIXED
-// Uses Google Gemini API (gemini-1.5-flash)
+// Uses Google Gemini API (gemini-2.0-flash)
 // =========================
 
 const GEMINI_API_KEY = "AIzaSyCn7Qu97qKsH1F9down_e8D541ZKNBWedM";
-const GEMINI_MODEL = "gemini-1.5-flash";
+const GEMINI_MODEL = "gemini-2.0-flash";
 
 // =========================
 // STATE
