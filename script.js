@@ -230,7 +230,7 @@ async function askAI(prompt, systemPrompt) {
   const fullPrompt = `${system}\n\nSUBJECT: ${currentSubject.name}\n\nSTUDY MATERIAL:\n${context}\n\nTASK: ${prompt}`;
   try {
     const res = await fetch(
-  `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`,
+  `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=YOUR_KEY`,
   {
     method: "POST",
     headers: { "Content-Type": "application/json" },
