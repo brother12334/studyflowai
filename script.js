@@ -1,26 +1,58 @@
 // =========================
-// CLAUDE API (FIXED)
+// CLAUDE API SETUP
 // =========================
 
-const CLAUDE_API_KEY = "YOUR_KEY_HERE";
+let CLAUDE_API_KEY = localStorage.getItem("claude_api_key") || "";
 const CLAUDE_MODEL = "claude-3-5-sonnet-latest";
 
+// Ask user for API key if missing
+if (!CLAUDE_API_KEY) {
+  const enteredKey = prompt("Enter your Claude API Key:");
+
+  if (enteredKey && enteredKey.trim()) {
+    CLAUDE_API_KEY = enteredKey.trim();
+
+    localStorage.setItem(
+      "claude_api_key",
+      CLAUDE_API_KEY
+    );
+  } else {
+    alert("Claude API key required.");
+  }
+}
+
+// =========================
+// CLAUDE API
+// =========================
+
 async function askAI(prompt, systemPrompt) {
-  if (!currentSubject) return "Select a subject first.";
-  if (!currentSubject.chunks.length) return "No study material uploaded yet.";
+  if (!currentSubject)
+    return "Select a subject first.";
+
+  if (!currentSubject.chunks.length)
+    return "No study material uploaded yet.";
 
   const chunks = getRelevantChunks(prompt);
 
   const context = chunks
     .filter(c => c.text && c.text.length > 20)
-    .map(c => c.text.split(" ").slice(0, 180).join(" "))
+    .map(c =>
+      c.text
+        .split(" ")
+        .slice(0, 180)
+        .join(" ")
+    )
     .join("\n\n");
 
   const system = systemPrompt || `
 You are a strict study assistant.
-Only use provided material.
-If missing, say "Not found in your study material."
-Be concise.
+
+RULES:
+- Only use provided study material
+- If missing, say:
+  "Not found in your study material."
+- Be concise
+- Use markdown formatting
 `;
 
   const fullPrompt = `
@@ -34,39 +66,87 @@ ${prompt}
 `;
 
   try {
-    const res = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": CLAUDE_API_KEY,
-        "anthropic-version": "2023-06-01"
-      },
-      body: JSON.stringify({
-        model: CLAUDE_MODEL,
-        max_tokens: 500,
-        system,
-        messages: [
-          {
-            role: "user",
-            content: fullPrompt
-          }
-        ]
-      })
-    });
+    const res = await fetch(
+      "https://api.anthropic.com/v1/messages",
+      {
+        method: "POST",
+
+        headers: {
+          "Content-Type": "application/json",
+          "x-api-key": CLAUDE_API_KEY,
+          "anthropic-version": "2023-06-01"
+        },
+
+        body: JSON.stringify({
+          model: CLAUDE_MODEL,
+
+          max_tokens: 500,
+
+          system,
+
+          messages: [
+            {
+              role: "user",
+              content: fullPrompt
+            }
+          ]
+        })
+      }
+    );
 
     const data = await res.json();
 
-    const text = data?.content?.[0]?.text?.trim();
+    console.log(data);
 
-    if (!text) return "AI returned no response.";
+    if (data.error) {
+      return `API Error: ${data.error.message}`;
+    }
+
+    const text =
+      data?.content?.[0]?.text?.trim();
+
+    if (!text) {
+      return "AI returned no response.";
+    }
 
     return text;
 
   } catch (err) {
-    console.error("Claude API error:", err);
-    return "API failed. Check console.";
+
+    console.error(
+      "Claude API error:",
+      err
+    );
+
+    return "Network/API error.";
   }
 }
+
+// =========================
+// CHANGE API KEY BUTTON
+// =========================
+
+document
+  .getElementById("resetKeyBtn")
+  ?.addEventListener("click", () => {
+
+    const newKey = prompt(
+      "Enter new Claude API key:"
+    );
+
+    if (newKey && newKey.trim()) {
+
+      CLAUDE_API_KEY =
+        newKey.trim();
+
+      localStorage.setItem(
+        "claude_api_key",
+        CLAUDE_API_KEY
+      );
+
+      alert("Claude API key updated!");
+    }
+});
 
 // =========================
 // STATE
