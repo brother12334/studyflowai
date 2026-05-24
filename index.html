@@ -2,6 +2,8 @@
 <html lang="en">
 
 <head>
+  <link href="https://fonts.googleapis.com/css2?family=Sora:wght@800&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="intro.css">
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>StudyFlow AI</title>
@@ -15,6 +17,21 @@
 </head>
 
 <body>
+  
+  <div id="introSplash">
+  <div class="intro-grid"></div>
+  <div class="intro-glow-1"></div>
+  <div class="intro-glow-2"></div>
+  <canvas id="introCanvas"></canvas>
+  <div class="intro-content">
+    <div class="intro-icon-ring"></div>
+    <div class="intro-icon">📚</div>
+    <h1 class="intro-title">StudyFlow AI</h1>
+    <p class="intro-tagline"></p><span class="intro-cursor"></span>
+    <p class="intro-credit"></p>
+    <div class="intro-bar-wrap"><div class="intro-bar-fill"></div></div>
+  </div>
+</div>
 
 <div class="background-blur"></div>
 
@@ -126,6 +143,7 @@
 
 <audio id="studyMusic" loop src="https://cdn.pixabay.com/download/audio/2022/03/15/audio_c8c8a73467.mp3?filename=lofi-study-112191.mp3"></audio>
 
+  <script src="intro.js"></script>
 <script src="script.js"></script>
 </body>
 </html>
