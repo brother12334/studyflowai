@@ -4,7 +4,7 @@
 // =========================
 
 const OR_API_KEY = "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";
-const OR_MODEL = "meta-llama/llama-3.2-3b-instruct:free";
+const OR_MODEL = "mistralai/mistral-7b-instruct:free";
 
 // =========================
 // STATE
