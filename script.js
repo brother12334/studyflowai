@@ -7,7 +7,7 @@
 // CONFIG
 // =========================
 
-const GEMINI_API_KEY = "AIzaSyB6ckEA11Oqj02iB0r5FujXgiLF9wFa8Kg";
+const GEMINI_API_KEY = "AIzaSyAsYbE0FoMeMWbGIrTAr_sZbM16wKYr7xk";
 const GEMINI_MODEL = "gemini-1.5-flash";
 
 // =========================
