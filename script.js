@@ -6,7 +6,7 @@
 // API KEY
 // -------------------------
 
-const OPENAI_API_KEY = "PASTE_API_KEY_HERE";
+const OPENAI_API_KEY = "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";
 
 // -------------------------
 // GLOBAL STATE
