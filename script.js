@@ -1,758 +1,446 @@
 // =========================
-// script.js
+// STUDYFLOW AI - GEMINI VERSION
 // =========================
 
-// -------------------------
-// API KEY
-// -------------------------
+// =========================
+// CONFIG
+// =========================
 
-const OPENAI_API_KEY = "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";
+const GEMINI_API_KEY = "AIzaSyB6ckEA11Oqj02iB0r5FujXgiLF9wFa8Kg";
+const GEMINI_MODEL = "gemini-1.5-flash";
 
-// -------------------------
-// GLOBAL STATE
-// -------------------------
+// =========================
+// STATE
+// =========================
 
 let subjects =
-  JSON.parse(localStorage.getItem("subjects"))
-  || [];
+  JSON.parse(localStorage.getItem("subjects")) || [];
 
 let currentSubject = null;
 
-// -------------------------
+// =========================
 // SAVE
-// -------------------------
+// =========================
 
 function saveSubjects() {
-
-  localStorage.setItem(
-    "subjects",
-    JSON.stringify(subjects)
-  );
+  localStorage.setItem("subjects", JSON.stringify(subjects));
 }
 
-// -------------------------
-// RENDER SUBJECTS
-// -------------------------
+// =========================
+// SUBJECTS
+// =========================
 
 function renderSubjects() {
 
-  const subjectList =
-    document.getElementById("subjectList");
-
-  subjectList.innerHTML = "";
+  const list = document.getElementById("subjectList");
+  list.innerHTML = "";
 
   subjects.forEach(subject => {
 
-    const card =
-      document.createElement("div");
-
+    const card = document.createElement("div");
     card.className = "subject-card";
 
     card.innerHTML = `
       <h3>${subject.name}</h3>
-      <p>
-        ${subject.files.length} files
-      </p>
+      <p>${subject.files.length} files</p>
+      <p>XP: ${subject.xp}</p>
     `;
 
-    card.onclick = () => {
-      loadSubject(subject.id);
-    };
+    card.onclick = () => loadSubject(subject.id);
 
-    subjectList.appendChild(card);
+    list.appendChild(card);
   });
 }
 
-// -------------------------
-// CREATE SUBJECT
-// -------------------------
+document.getElementById("newSubjectBtn").onclick = () => {
 
-document
-.getElementById("newSubjectBtn")
-.addEventListener("click", () => {
-
-  const name =
-    prompt("Enter subject name:");
-
+  const name = prompt("Enter subject name:");
   if (!name) return;
 
-  const subject = {
-
+  subjects.push({
     id: Date.now(),
-
     name,
-
     files: [],
-
     extractedText: "",
-
-    flashcards: [],
-
-    quizzes: [],
-
     chatHistory: [],
-
-    missedTopics: [],
-
     xp: 0,
-
+    level: 1,
     streak: 0,
-
-    level: 1
-  };
-
-  subjects.push(subject);
+    missedTopics: []
+  });
 
   saveSubjects();
-
   renderSubjects();
-});
+};
 
-// -------------------------
+// =========================
 // LOAD SUBJECT
-// -------------------------
+// =========================
 
 function loadSubject(id) {
 
-  currentSubject =
-    subjects.find(s => s.id === id);
+  currentSubject = subjects.find(s => s.id === id);
 
-  document
-  .getElementById("subjectTitle")
-  .textContent = currentSubject.name;
+  document.getElementById("subjectTitle").innerText =
+    currentSubject.name;
 
-  document
-  .getElementById("xp")
-  .textContent = currentSubject.xp;
+  document.getElementById("xp").innerText =
+    currentSubject.xp;
 
-  document
-  .getElementById("streak")
-  .textContent = currentSubject.streak;
+  document.getElementById("level").innerText =
+    currentSubject.level;
 
-  document
-  .getElementById("level")
-  .textContent = currentSubject.level;
+  document.getElementById("streak").innerText =
+    currentSubject.streak;
 
   renderFiles();
-
   renderChat();
 }
 
-// -------------------------
-// FILES
-// -------------------------
+// =========================
+// FILE HANDLING
+// =========================
 
-document
-.getElementById("fileInput")
-.addEventListener("change", handleFiles);
+document.getElementById("fileInput").onchange = handleFiles;
 
 async function handleFiles(e) {
 
   if (!currentSubject) {
-    alert("Select a subject first.");
+    alert("Select a subject first");
     return;
   }
 
-  const files =
-    Array.from(e.target.files);
+  const files = Array.from(e.target.files);
 
-  for (const file of files) {
+  for (let file of files) {
 
-    const text =
-      await extractText(file);
+    const text = await extractText(file);
 
     currentSubject.files.push({
-
       name: file.name,
-
       text
     });
 
-    currentSubject.extractedText +=
-      "\n\n" + text;
+    currentSubject.extractedText += "\n\n" + text;
   }
 
   saveSubjects();
-
   renderFiles();
 }
 
-// -------------------------
-// EXTRACT TEXT
-// -------------------------
+// =========================
+// TEXT EXTRACTION
+// =========================
 
 async function extractText(file) {
 
   // TXT
-
   if (file.type === "text/plain") {
-
     return await file.text();
   }
 
   // PDF
-
   if (file.type === "application/pdf") {
 
-    const buffer =
-      await file.arrayBuffer();
-
-    const pdf =
-      await pdfjsLib
-      .getDocument({ data: buffer })
-      .promise;
+    const buffer = await file.arrayBuffer();
+    const pdf = await pdfjsLib.getDocument({ data: buffer }).promise;
 
     let text = "";
 
-    for (
-      let i = 1;
-      i <= pdf.numPages;
-      i++
-    ) {
-
-      const page =
-        await pdf.getPage(i);
-
-      const content =
-        await page.getTextContent();
-
-      text +=
-        content.items
-        .map(item => item.str)
-        .join(" ");
+    for (let i = 1; i <= pdf.numPages; i++) {
+      const page = await pdf.getPage(i);
+      const content = await page.getTextContent();
+      text += content.items.map(i => i.str).join(" ");
     }
 
     return text;
   }
 
   // DOCX
-
   if (file.name.endsWith(".docx")) {
-
-    const buffer =
-      await file.arrayBuffer();
-
-    const result =
-      await mammoth.extractRawText({
-        arrayBuffer: buffer
-      });
-
+    const buffer = await file.arrayBuffer();
+    const result = await mammoth.extractRawText({ arrayBuffer: buffer });
     return result.value;
   }
 
-  // IMAGES OCR
-
+  // IMAGE OCR
   if (file.type.startsWith("image/")) {
-
-    const result =
-      await Tesseract.recognize(file);
-
+    const result = await Tesseract.recognize(file);
     return result.data.text;
   }
 
   return "";
 }
 
-// -------------------------
+// =========================
 // RENDER FILES
-// -------------------------
+// =========================
 
 function renderFiles() {
 
-  const list =
-    document.getElementById("fileList");
-
+  const list = document.getElementById("fileList");
   list.innerHTML = "";
 
+  if (!currentSubject) return;
+
   currentSubject.files.forEach(file => {
-
-    const li =
-      document.createElement("li");
-
+    const li = document.createElement("li");
     li.textContent = file.name;
-
     list.appendChild(li);
   });
 }
 
-// -------------------------
-// OPENAI
-// -------------------------
+// =========================
+// GEMINI API
+// =========================
 
 async function askAI(prompt) {
 
+  if (!currentSubject) {
+    return "Please select a subject first.";
+  }
+
   try {
 
-    const response = await fetch(
-      "https://api.openai.com/v1/chat/completions",
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`,
       {
-
         method: "POST",
-
         headers: {
-
-          "Content-Type":
-            "application/json",
-
-          "Authorization":
-            `Bearer ${OPENAI_API_KEY}`
+          "Content-Type": "application/json"
         },
-
         body: JSON.stringify({
-
-          model: "gpt-4.1-mini",
-
-          messages: [
-
-            {
-              role: "system",
-
-              content: `
-                You are a study assistant.
-
-                ONLY answer using the
-                uploaded study guides.
-
-                Be concise but helpful.
-              `
-            },
-
+          contents: [
             {
               role: "user",
+              parts: [{
+                text: `
+You are a strict study assistant.
 
-              content: `
-                SUBJECT:
-                ${currentSubject.name}
+ONLY use the uploaded study material.
+If missing, say:
+"That topic was not found in your uploaded study guides."
 
-                STUDY MATERIAL:
-                ${currentSubject.extractedText}
+---
 
-                QUESTION:
-                ${prompt}
-              `
+SUBJECT:
+${currentSubject.name}
+
+STUDY MATERIAL:
+${currentSubject.extractedText}
+
+---
+
+QUESTION:
+${prompt}
+                `
+              }]
             }
           ]
         })
       }
     );
 
-    const data =
-      await response.json();
+    const data = await res.json();
 
-    return data
-      .choices[0]
-      .message
-      .content;
+    return data?.candidates?.[0]?.content?.parts?.[0]?.text
+      || "No response.";
 
   } catch (err) {
-
     console.error(err);
-
-    return "Error contacting AI.";
+    return "AI error.";
   }
 }
 
-// -------------------------
+// =========================
 // CHAT
-// -------------------------
+// =========================
 
-document
-.getElementById("sendBtn")
-.addEventListener("click", sendMessage);
+document.getElementById("sendBtn").onclick = sendMessage;
 
 async function sendMessage() {
 
-  const input =
-    document.getElementById("chatInput");
-
-  const message = input.value;
+  const input = document.getElementById("chatInput");
+  const message = input.value.trim();
 
   if (!message) return;
 
   addMessage(message, "user");
-
   input.value = "";
 
-  const reply =
-    await askAI(message);
+  const reply = await askAI(message);
 
   addMessage(reply, "ai");
 
-  currentSubject.chatHistory.push({
-
-    role: "user",
-    content: message
-
-  });
-
-  currentSubject.chatHistory.push({
-
-    role: "assistant",
-    content: reply
-
-  });
+  currentSubject.chatHistory.push({ role: "user", content: message });
+  currentSubject.chatHistory.push({ role: "ai", content: reply });
 
   saveSubjects();
 }
 
 function addMessage(text, type) {
 
-  const div =
-    document.createElement("div");
-
-  div.className =
-    `chat-bubble ${type}`;
-
+  const div = document.createElement("div");
+  div.className = `chat-bubble ${type}`;
   div.textContent = text;
 
-  document
-  .getElementById("chatMessages")
-  .appendChild(div);
+  document.getElementById("chatMessages").appendChild(div);
 }
 
 function renderChat() {
 
-  const container =
-    document.getElementById("chatMessages");
+  const box = document.getElementById("chatMessages");
+  box.innerHTML = "";
 
-  container.innerHTML = "";
+  if (!currentSubject) return;
 
-  currentSubject.chatHistory
-  .forEach(msg => {
-
-    addMessage(
-      msg.content,
-      msg.role === "user"
-      ? "user"
-      : "ai"
-    );
+  currentSubject.chatHistory.forEach(msg => {
+    addMessage(msg.content, msg.role === "user" ? "user" : "ai");
   });
 }
 
-// -------------------------
-// AI TOOL BUTTONS
-// -------------------------
+// =========================
+// TOOL SYSTEM
+// =========================
 
 async function runTool(prompt) {
 
-  const result =
-    await askAI(prompt);
+  const result = await askAI(prompt);
 
-  document
-  .getElementById("output")
-  .textContent = result;
+  document.getElementById("output").textContent = result;
 }
 
-// SUMMARY
+// =========================
+// TOOL BUTTONS
+// =========================
 
-document
-.getElementById("summarizeBtn")
-.onclick = () => {
+document.getElementById("summarizeBtn").onclick = () =>
+  runTool("Summarize these notes into clean study notes.");
 
-  runTool(`
-    Summarize all uploaded notes
-    into concise study notes.
+document.getElementById("flashcardBtn").onclick = () =>
+  runTool("Generate 15 flashcards from the material.");
+
+document.getElementById("quizBtn").onclick = () =>
+  runTool("Create a 10 question multiple choice quiz.");
+
+document.getElementById("eli5Btn").onclick = () =>
+  runTool("Explain everything like I'm 5 years old.");
+
+document.getElementById("mnemonicBtn").onclick = () =>
+  runTool("Create memory tricks and mnemonics.");
+
+document.getElementById("practiceTestBtn").onclick = () =>
+  runTool("Create a full practice test with answers.");
+
+document.getElementById("weaknessBtn").onclick = () =>
+  runTool("Identify weak topics and study gaps.");
+
+document.getElementById("studyPlanBtn").onclick = async () => {
+
+  const date = prompt("Exam date?");
+  const diff = prompt("Difficulty?");
+  const amt = prompt("Amount of material?");
+
+  const result = await askAI(`
+Create a study plan.
+
+Exam Date: ${date}
+Difficulty: ${diff}
+Material: ${amt}
   `);
+
+  document.getElementById("output").textContent = result;
 };
 
-// FLASHCARDS
-
-document
-.getElementById("flashcardBtn")
-.onclick = async () => {
-
-  const result =
-    await askAI(`
-      Generate 15 flashcards
-      from these notes.
-    `);
-
-  document
-  .getElementById("output")
-  .textContent = result;
-};
-
-// QUIZ
-
-document
-.getElementById("quizBtn")
-.onclick = async () => {
-
-  const result =
-    await askAI(`
-      Create a 10 question
-      multiple choice quiz.
-    `);
-
-  document
-  .getElementById("output")
-  .textContent = result;
-
-  currentSubject.xp += 25;
-
-  currentSubject.level =
-    Math.floor(
-      currentSubject.xp / 100
-    ) + 1;
-
-  confetti();
-
-  saveSubjects();
-
-  loadSubject(currentSubject.id);
-};
-
-// ELI5
-
-document
-.getElementById("eli5Btn")
-.onclick = () => {
-
-  runTool(`
-    Explain the most difficult
-    concepts like I'm 5 years old.
-  `);
-};
-
-// MNEMONICS
-
-document
-.getElementById("mnemonicBtn")
-.onclick = () => {
-
-  runTool(`
-    Create mnemonics and memory
-    tricks for these notes.
-  `);
-};
-
-// PRACTICE TEST
-
-document
-.getElementById("practiceTestBtn")
-.onclick = () => {
-
-  runTool(`
-    Create a realistic practice
-    test with answer key.
-  `);
-};
-
-// WEAKNESS DETECTOR
-
-document
-.getElementById("weaknessBtn")
-.onclick = () => {
-
-  runTool(`
-    Analyze likely weak topics
-    based on the uploaded notes.
-  `);
-};
-
-// STUDY PLAN
-
-document
-.getElementById("studyPlanBtn")
-.onclick = async () => {
-
-  const examDate =
-    prompt("Exam date?");
-
-  const difficulty =
-    prompt("Difficulty level?");
-
-  const material =
-    prompt("Amount of material?");
-
-  const result =
-    await askAI(`
-      Create a study plan.
-
-      Exam Date:
-      ${examDate}
-
-      Difficulty:
-      ${difficulty}
-
-      Material:
-      ${material}
-    `);
-
-  document
-  .getElementById("output")
-  .textContent = result;
-};
-
-// -------------------------
+// =========================
 // SEARCH
-// -------------------------
+// =========================
 
-document
-.getElementById("searchInput")
-.addEventListener("input", e => {
+document.getElementById("searchInput").oninput = (e) => {
 
-  const value =
-    e.target.value.toLowerCase();
+  const val = e.target.value.toLowerCase();
 
-  const cards =
-    document.querySelectorAll(
-      ".subject-card"
-    );
-
-  cards.forEach(card => {
-
-    const text =
-      card.innerText.toLowerCase();
-
+  document.querySelectorAll(".subject-card").forEach(card => {
     card.style.display =
-      text.includes(value)
+      card.innerText.toLowerCase().includes(val)
       ? "block"
       : "none";
   });
+};
+
+// =========================
+// DRAG & DROP
+// =========================
+
+const dropZone = document.getElementById("dropZone");
+
+dropZone.addEventListener("dragover", e => {
+  e.preventDefault();
+  dropZone.classList.add("dragging");
 });
 
-// -------------------------
-// DRAG DROP
-// -------------------------
+dropZone.addEventListener("dragleave", () => {
+  dropZone.classList.remove("dragging");
+});
 
-const dropZone =
-  document.getElementById("dropZone");
+dropZone.addEventListener("drop", e => {
+  e.preventDefault();
+  dropZone.classList.remove("dragging");
 
-dropZone.addEventListener(
-  "dragover",
-  e => {
+  handleFiles({ target: { files: e.dataTransfer.files } });
+});
 
-    e.preventDefault();
-
-    dropZone.classList.add(
-      "dragging"
-    );
-  }
-);
-
-dropZone.addEventListener(
-  "dragleave",
-  () => {
-
-    dropZone.classList.remove(
-      "dragging"
-    );
-  }
-);
-
-dropZone.addEventListener(
-  "drop",
-  e => {
-
-    e.preventDefault();
-
-    dropZone.classList.remove(
-      "dragging"
-    );
-
-    handleFiles({
-      target: {
-        files: e.dataTransfer.files
-      }
-    });
-  }
-);
-
-// -------------------------
+// =========================
 // POMODORO
-// -------------------------
-
-let timerRunning = false;
+// =========================
 
 let time = 1500;
+let running = false;
 
-document
-.getElementById("startTimer")
-.onclick = () => {
+document.getElementById("startTimer").onclick = () => {
 
-  if (timerRunning) return;
+  if (running) return;
+  running = true;
 
-  timerRunning = true;
+  const interval = setInterval(() => {
 
-  const interval =
-    setInterval(() => {
+    time--;
 
-      time--;
+    const m = Math.floor(time / 60);
+    const s = time % 60;
 
-      const minutes =
-        Math.floor(time / 60);
+    document.getElementById("timer").textContent =
+      `${m}:${s.toString().padStart(2, "0")}`;
 
-      const seconds =
-        time % 60;
+    if (time <= 0) {
+      clearInterval(interval);
+      running = false;
+      time = 1500;
 
-      document
-      .getElementById("timer")
-      .textContent =
-        `${minutes}:${
-          seconds
-          .toString()
-          .padStart(2, "0")
-        }`;
+      alert("Pomodoro done!");
+      confetti();
+    }
 
-      if (time <= 0) {
-
-        clearInterval(interval);
-
-        timerRunning = false;
-
-        alert("Pomodoro Complete!");
-
-        confetti();
-
-        time = 1500;
-      }
-
-    }, 1000);
+  }, 1000);
 };
 
-// -------------------------
+// =========================
 // MUSIC
-// -------------------------
+// =========================
 
-const music =
-  document.getElementById(
-    "studyMusic"
-  );
+const music = document.getElementById("studyMusic");
+let playing = false;
 
-let musicPlaying = false;
+document.getElementById("musicToggle").onclick = () => {
 
-document
-.getElementById("musicToggle")
-.onclick = () => {
+  if (playing) music.pause();
+  else music.play();
 
-  if (musicPlaying) {
-
-    music.pause();
-
-  } else {
-
-    music.play();
-  }
-
-  musicPlaying = !musicPlaying;
+  playing = !playing;
 };
 
-// -------------------------
-// THEME
-// -------------------------
-
-document
-.getElementById("themeToggle")
-.onclick = () => {
-
-  document.body.classList.toggle(
-    "light-mode"
-  );
-};
-
-// -------------------------
-// INITIALIZE
-// -------------------------
+// =========================
+// INIT
+// =========================
 
 renderSubjects();
