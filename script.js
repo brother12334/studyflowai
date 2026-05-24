@@ -2,7 +2,7 @@
 // STUDYFLOW AI — Gemini 2.5 Flash
 // =========================
 
-const CLAUDE_API_KEY = "YOUR_KEY_HERE";
+const CLAUDE_API_KEY = "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";
 const CLAUDE_MODEL = "claude-3-5-sonnet-latest";
 
 async function askAI(prompt, systemPrompt) {
