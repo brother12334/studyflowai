@@ -1,9 +1,9 @@
 // =========================
-// STUDYFLOW AI — OpenRouter
+// STUDYFLOW AI — Gemini 2.0 Flash
 // =========================
 
-const OR_API_KEY = "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";
-const OR_MODEL  = "openrouter/free";
+const GEMINI_API_KEY = "AIzaSyCL1pYBWL-Cf3SmqGqBUalmyHBMppvp_VM";
+
 
 // =========================
 // STATE
@@ -219,7 +219,7 @@ function getRelevantChunks(question) {
 }
 
 // =========================
-// OPENROUTER API
+// GEMINI API
 // =========================
 async function askAI(prompt, systemPrompt) {
   if (!currentSubject) return "Select a subject first.";
@@ -227,15 +227,19 @@ async function askAI(prompt, systemPrompt) {
   const chunks = getRelevantChunks(prompt);
   const context = chunks.filter(c => c.text && c.text.length > 20).map(c => c.text.slice(0, 600)).join("\n\n");
   const system = systemPrompt || `You are a focused study assistant. Answer ONLY from the study material provided. If the answer is not in the material, say "Not found in your study material." Be concise and helpful. Use markdown formatting: **bold** for key terms, bullet points for lists.`;
+  const fullPrompt = `${system}\n\nSUBJECT: ${currentSubject.name}\n\nSTUDY MATERIAL:\n${context}\n\nTASK: ${prompt}`;
   try {
-    const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${OR_API_KEY}` },
-      body: JSON.stringify({ model: OR_MODEL, messages: [{ role: "system", content: system }, { role: "user", content: `SUBJECT: ${currentSubject.name}\n\nSTUDY MATERIAL:\n${context}\n\nTASK: ${prompt}` }] })
-    });
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ contents: [{ parts: [{ text: fullPrompt }] }] })
+      }
+    );
     const data = await res.json();
     if (data.error) return `API error: ${data.error.message}`;
-    const text = data?.choices?.[0]?.message?.content?.trim();
+    const text = data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
     if (!text) return "AI returned an empty response. Try rephrasing.";
     return text;
   } catch (err) { console.error("AI error:", err); return "Network or API error. Check your connection."; }
@@ -320,17 +324,17 @@ async function sendEditMessage() {
   }
 
   try {
-    const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${OR_API_KEY}` },
-      body: JSON.stringify({ model: OR_MODEL, messages: [
-        { role: "system", content: "You are a study assistant helping edit flashcards or quiz questions. Follow the exact format. Output ONLY the cards/questions, no preamble." },
-        { role: "user", content: formatPrompt }
-      ]})
-    });
+    const editSystem = "You are a study assistant helping edit flashcards or quiz questions. Follow the exact format. Output ONLY the cards/questions, no preamble.";
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ contents: [{ parts: [{ text: `${editSystem}\n\n${formatPrompt}` }] }] })
+      }
+    );
     const data = await res.json();
-    let text = data?.choices?.[0]?.message?.content?.trim() || "No response.";
-    text = text.replace(/<think>[\s\S]*?<\/think>/gi, "").trim();
+    let text = data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || "No response.";
     renderer(text);
   } catch { typingDiv.innerHTML = "❌ Error contacting AI. Try again."; }
 }
