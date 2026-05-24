@@ -1,5 +1,5 @@
 // =========================
-// STUDYFLOW AI — Gemini 2.0 Flash
+// STUDYFLOW AI — Gemini 2.5 Flash
 // =========================
 
 const GEMINI_API_KEY = "AIzaSyA9rsJ6msdJvoceOzC5YsaCDGmX2I0YpxY";
@@ -16,7 +16,7 @@ let timerRunning          = false;
 let musicPlaying          = false;
 let currentFlashcards     = [];
 let currentQuizQuestions  = [];
-let currentMode           = null; // "flashcard" | "quiz"
+let currentMode           = null;
 
 // =========================
 // SAVE
@@ -50,31 +50,25 @@ function renderSubjects(filter = "") {
   const list = document.getElementById("subjectList");
   list.innerHTML = "";
   const filtered = filter ? subjects.filter(s => s.name.toLowerCase().includes(filter)) : subjects;
-
   filtered.forEach(sub => {
     const div = document.createElement("div");
     div.className = "subject-card" + (currentSubject?.id === sub.id ? " active" : "");
-
     const info = document.createElement("div");
     info.className = "subject-info";
     info.innerHTML = `<h3>${sub.name}</h3><p>${sub.files.length} file${sub.files.length !== 1 ? "s" : ""}</p>`;
     info.onclick = () => loadSubject(sub.id);
-
     const actions = document.createElement("div");
     actions.className = "subject-actions";
-
     const renameBtn = document.createElement("button");
     renameBtn.className = "subject-action-btn rename-btn";
     renameBtn.title = "Rename";
     renameBtn.innerHTML = "✏️";
     renameBtn.onclick = (e) => { e.stopPropagation(); renameSubject(sub.id); };
-
     const deleteBtn = document.createElement("button");
     deleteBtn.className = "subject-action-btn delete-btn";
     deleteBtn.title = "Delete";
     deleteBtn.innerHTML = "🗑️";
     deleteBtn.onclick = (e) => { e.stopPropagation(); deleteSubject(sub.id); };
-
     actions.appendChild(renameBtn);
     actions.appendChild(deleteBtn);
     div.appendChild(info);
@@ -213,7 +207,7 @@ function getRelevantChunks(question) {
   const words = question.toLowerCase().split(/\s+/).filter(w => w.length > 2);
   return currentSubject.chunks
     .map(c => { let score = 0; const t = c.text.toLowerCase(); for (let w of words) { if (t.includes(w)) score += 2; } return { ...c, score }; })
-    .sort((a, b) => b.score - a.score).slice(0, 3);
+    .sort((a, b) => b.score - a.score).slice(0, 6);
 }
 
 // =========================
@@ -223,7 +217,7 @@ async function askAI(prompt, systemPrompt) {
   if (!currentSubject) return "Select a subject first.";
   if (!currentSubject.chunks.length) return "No study material uploaded yet. Add files first.";
   const chunks = getRelevantChunks(prompt);
-  const context = chunks.filter(c => c.text && c.text.length > 20).map(c => c.text.slice(0, 600)).join("\n\n");
+  const context = chunks.filter(c => c.text && c.text.length > 20).map(c => c.text.slice(0, 800)).join("\n\n");
   const system = systemPrompt || `You are a focused study assistant. Answer ONLY from the study material provided. If the answer is not in the material, say "Not found in your study material." Be concise and helpful. Use markdown formatting: **bold** for key terms, bullet points for lists.`;
   const fullPrompt = `${system}\n\nSUBJECT: ${currentSubject.name}\n\nSTUDY MATERIAL:\n${context}\n\nTASK: ${prompt}`;
   try {
@@ -232,9 +226,7 @@ async function askAI(prompt, systemPrompt) {
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: fullPrompt }] }]
-        })
+        body: JSON.stringify({ contents: [{ parts: [{ text: fullPrompt }] }] })
       }
     );
     const data = await res.json();
@@ -330,9 +322,7 @@ async function sendEditMessage() {
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: `${editSystem}\n\n${formatPrompt}` }] }]
-        })
+        body: JSON.stringify({ contents: [{ parts: [{ text: `${editSystem}\n\n${formatPrompt}` }] }] })
       }
     );
     const data = await res.json();
@@ -360,7 +350,8 @@ function addEditMessage(text, type) {
 // =========================
 function parseFlashcards(text) {
   text = text.replace(/<think>[\s\S]*?<\/think>/gi, "").trim();
-  const pairs = []; const lines = text.split("\n");
+  const pairs = [];
+  const lines = text.split("\n");
   let currentQ = "", currentA = "";
   for (let line of lines) {
     line = line.trim();
@@ -393,20 +384,28 @@ function renderFlashcardUI(pairs) {
 
   function cardHTML(i) {
     const p = pairs[i];
-    const dots = pairs.map((_, di) => `<span class="fc-dot${di === i ? " fc-dot-active" : ""}"></span>`).join("");
+    const pct = ((i + 1) / pairs.length) * 100;
     return `<div class="fc-wrap">
-      <div class="fc-progress-bar"><div class="fc-progress-fill" style="width:${((i+1)/pairs.length)*100}%"></div></div>
-      <p class="fc-counter">${i+1} / ${pairs.length}</p>
-      <div class="fc-card" id="fcCard" onclick="toggleFlip()">
-        <div class="fc-inner" id="fcInner">
-          <div class="fc-front"><span class="fc-side-label">Question</span><p class="fc-text">${p.q}</p><span class="fc-hint">Click to flip</span></div>
-          <div class="fc-back"><span class="fc-side-label">Answer</span><p class="fc-text">${p.a}</p></div>
-        </div>
+      <div class="fc-top-bar">
+        <div class="fc-progress-bar"><div class="fc-progress-fill" style="width:${pct}%"></div></div>
+        <p class="fc-counter">${i + 1} / ${pairs.length}</p>
       </div>
       <div class="fc-nav">
-        <button class="fc-nav-btn" onclick="fcPrev()" ${i===0?"disabled":""}>← Prev</button>
-        <div class="fc-dot-row">${dots}</div>
-        <button class="fc-nav-btn" onclick="fcNext()" ${i===pairs.length-1?"disabled":""}>Next →</button>
+        <button class="fc-nav-btn" onclick="fcPrev()" ${i === 0 ? "disabled" : ""}>← Prev</button>
+        <div class="fc-card" id="fcCard" onclick="toggleFlip()">
+          <div class="fc-inner" id="fcInner">
+            <div class="fc-front">
+              <span class="fc-side-label">Question</span>
+              <p class="fc-text">${p.q}</p>
+              <span class="fc-hint">Click to flip</span>
+            </div>
+            <div class="fc-back">
+              <span class="fc-side-label">Answer</span>
+              <p class="fc-text">${p.a}</p>
+            </div>
+          </div>
+        </div>
+        <button class="fc-nav-btn" onclick="fcNext()" ${i === pairs.length - 1 ? "disabled" : ""}>Next →</button>
       </div>
       <div class="fc-actions">
         <button class="fc-action-btn" onclick="fcShuffle()">🔀 Shuffle</button>
@@ -422,7 +421,7 @@ function renderFlashcardUI(pairs) {
   window.fcNext = () => { if (idx < pairs.length - 1) { idx++; flipped = false; setOutput(cardHTML(idx), true); setupFCKeyboard(); } };
   window.fcPrev = () => { if (idx > 0) { idx--; flipped = false; setOutput(cardHTML(idx), true); setupFCKeyboard(); } };
   window.fcShuffle = () => {
-    for (let i = pairs.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i+1)); [pairs[i], pairs[j]] = [pairs[j], pairs[i]]; }
+    for (let i = pairs.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [pairs[i], pairs[j]] = [pairs[j], pairs[i]]; }
     idx = 0; flipped = false; setOutput(cardHTML(idx), true); setupFCKeyboard();
   };
   window.fcRestart = () => { idx = 0; flipped = false; setOutput(cardHTML(idx), true); setupFCKeyboard(); };
@@ -544,13 +543,30 @@ document.getElementById("summarizeBtn").onclick = () => runTool(
   "summarizeBtn"
 );
 
+// FIXED: concise flashcard prompt that covers all material
 document.getElementById("flashcardBtn").onclick = () => runTool(
-  `Create exactly 10 flashcard Q&A pairs from this study material.\nUse this EXACT format for each, with no extra text between them:\nQ: [question here]\nA: [answer here]`,
+  `Create flashcards that cover EVERY key concept, term, fact, and process in this study material. 
+Rules:
+- Generate as many cards as needed to cover ALL the material — do not skip anything important.
+- Questions must be specific and exam-focused (definitions, causes, effects, dates, formulas, processes).
+- Answers must be SHORT: 1 sentence or a tight list of 2–4 items max. No padding or explanation.
+- Do NOT write conversational or vague questions like "What is important about X?" — ask for specific facts.
+Use this EXACT format with no extra text:
+Q: [specific question]
+A: [concise answer, max 1-2 sentences]`,
   "flashcardBtn", renderFlashcards
 );
 
 document.getElementById("quizBtn").onclick = () => runTool(
-  `Generate 5 multiple choice questions from this study material.\nUse this EXACT format:\n1. [Question text]\nA. [option]\nB. [option]\nC. [option] (correct)\nD. [option]\n\nMark the correct answer with (correct) after it.`,
+  `Generate 5 multiple choice questions from this study material.
+Use this EXACT format:
+1. [Question text]
+A. [option]
+B. [option]
+C. [option] (correct)
+D. [option]
+
+Mark the correct answer with (correct) after it.`,
   "quizBtn", renderQuiz
 );
 
@@ -570,7 +586,15 @@ document.getElementById("mnemonicBtn").onclick = () => runTool(
 );
 
 document.getElementById("practiceTestBtn").onclick = () => runTool(
-  `Create a practice test with 6 multiple choice questions from this study material.\nUse this EXACT format:\n1. [Question text]\nA. [option]\nB. [option]\nC. [option] (correct)\nD. [option]\n\nMark the correct answer with (correct) after it.`,
+  `Create a practice test with 6 multiple choice questions from this study material.
+Use this EXACT format:
+1. [Question text]
+A. [option]
+B. [option]
+C. [option] (correct)
+D. [option]
+
+Mark the correct answer with (correct) after it.`,
   "practiceTestBtn", renderQuiz
 );
 
@@ -645,17 +669,14 @@ function awardXP(amount) {
 
 // =========================
 // THEME TOGGLE
-// Dark is default (no class). Light = body.light class.
 // =========================
 const themeBtn = document.getElementById("themeToggle");
-
 if (localStorage.getItem("theme") === "light") {
   document.body.classList.add("light");
   themeBtn.textContent = "🌞 Light Mode";
 } else {
   themeBtn.textContent = "🌙 Dark Mode";
 }
-
 themeBtn.onclick = () => {
   document.body.classList.toggle("light");
   const isLight = document.body.classList.contains("light");
