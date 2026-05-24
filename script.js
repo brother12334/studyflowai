@@ -56,10 +56,9 @@ ${prompt}
     const data = await res.json();
 
     return data?.content?.[0]?.text?.trim() || "No response.";
-  } catch (err) {
-    console.error(err);
-    return "API error.";
-  }
+  catch (err) {
+  console.error("FULL API ERROR:", err);
+  return `API failed: ${err.message}`;
 }
 
 // =========================
