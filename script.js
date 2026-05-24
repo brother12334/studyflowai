@@ -1,8 +1,8 @@
 // =========================
-// STUDYFLOW AI — Gemini 2.5 Flash
+// CLAUDE API (FIXED)
 // =========================
 
-const CLAUDE_API_KEY = "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";
+const CLAUDE_API_KEY = "YOUR_KEY_HERE";
 const CLAUDE_MODEL = "claude-3-5-sonnet-latest";
 
 async function askAI(prompt, systemPrompt) {
@@ -12,6 +12,7 @@ async function askAI(prompt, systemPrompt) {
   const chunks = getRelevantChunks(prompt);
 
   const context = chunks
+    .filter(c => c.text && c.text.length > 20)
     .map(c => c.text.split(" ").slice(0, 180).join(" "))
     .join("\n\n");
 
@@ -55,10 +56,16 @@ ${prompt}
 
     const data = await res.json();
 
-    return data?.content?.[0]?.text?.trim() || "No response.";
-  catch (err) {
-  console.error("FULL API ERROR:", err);
-  return `API failed: ${err.message}`;
+    const text = data?.content?.[0]?.text?.trim();
+
+    if (!text) return "AI returned no response.";
+
+    return text;
+
+  } catch (err) {
+    console.error("Claude API error:", err);
+    return "API failed. Check console.";
+  }
 }
 
 // =========================
