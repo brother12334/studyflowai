@@ -2,7 +2,7 @@
 // STUDYFLOW AI — Gemini 2.0 Flash
 // =========================
 
-const GEMINI_API_KEY = "AIzaSyCsMzy5OAFalOfBIWLDdnotXxKN9G69-fQ";
+const GEMINI_API_KEY = "AIzaSyA9rsJ6msdJvoceOzC5YsaCDGmX2I0YpxY";
 
 
 // =========================
