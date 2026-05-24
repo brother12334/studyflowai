@@ -1,120 +1,251 @@
+<!-- ========================= -->
+<!-- index.html -->
+<!-- ========================= -->
+
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
+
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+
   <title>StudyFlow AI</title>
 
+  <!-- Styles -->
   <link rel="stylesheet" href="styles.css">
 
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap"
+    rel="stylesheet">
+
+  <!-- Libraries -->
   <script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js"></script>
+
   <script src="https://unpkg.com/mammoth/mammoth.browser.min.js"></script>
+
   <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
+
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+
 </head>
 
 <body>
 
+<div class="background-blur"></div>
+
 <div class="app">
 
-  <!-- Sidebar -->
+  <!-- ========================= -->
+  <!-- SIDEBAR -->
+  <!-- ========================= -->
+
   <aside class="sidebar">
-    <h1>📚 StudyFlow</h1>
 
-    <button id="newSubjectBtn">+ Add Subject</button>
+    <h1 class="logo">
+      📚 StudyFlow AI
+    </h1>
 
-    <input type="text" id="searchInput" placeholder="Search subjects..." />
+    <button id="newSubjectBtn" class="primary-btn">
+      + Add Subject
+    </button>
+
+    <input
+      type="text"
+      id="searchInput"
+      placeholder="Search subjects..."
+    >
 
     <div id="subjectList"></div>
 
-    <div class="bottom-controls">
-      <button id="themeToggle">🌙 Dark Mode</button>
-      <button id="musicToggle">🎵 Music</button>
+    <div class="sidebar-bottom">
+
+      <button id="themeToggle">
+        🌙 Toggle Theme
+      </button>
+
+      <button id="musicToggle">
+        🎵 Music
+      </button>
+
     </div>
+
   </aside>
 
-  <!-- Main -->
+  <!-- ========================= -->
+  <!-- MAIN CONTENT -->
+  <!-- ========================= -->
+
   <main class="main-content">
 
-    <section class="dashboard">
+    <!-- TOP BAR -->
 
-      <div class="top-bar">
-        <h2 id="subjectTitle">Select a Subject</h2>
+    <div class="top-bar">
 
-        <div class="stats">
-          <div>🔥 Streak: <span id="streak">0</span></div>
-          <div>⭐ XP: <span id="xp">0</span></div>
-          <div>🏆 Level: <span id="level">1</span></div>
+      <div>
+        <h2 id="subjectTitle">
+          Select a Subject
+        </h2>
+
+        <p id="subjectSubtitle">
+          Upload study guides to begin.
+        </p>
+      </div>
+
+      <div class="stats-container">
+
+        <div class="stat-card">
+          🔥
+          <span id="streak">0</span>
         </div>
-      </div>
 
-      <!-- Upload -->
-      <div class="upload-area" id="dropZone">
-        <p>Drag & Drop Study Guides Here</p>
-        <input type="file" id="fileInput" multiple />
-      </div>
-
-      <!-- Uploaded Files -->
-      <div class="files-section">
-        <h3>Uploaded Study Guides</h3>
-        <ul id="fileList"></ul>
-      </div>
-
-      <!-- AI Tools -->
-      <div class="tools-grid">
-
-        <button class="tool-btn" id="summarizeBtn">
-          Summarize Notes
-        </button>
-
-        <button class="tool-btn" id="flashcardBtn">
-          Generate Flashcards
-        </button>
-
-        <button class="tool-btn" id="quizBtn">
-          Create Quiz
-        </button>
-
-        <button class="tool-btn" id="studyPlanBtn">
-          Generate Study Plan
-        </button>
-
-        <button class="tool-btn" id="eli5Btn">
-          Explain Like I'm 5
-        </button>
-
-        <button class="tool-btn" id="mnemonicBtn">
-          Memory Tricks
-        </button>
-
-      </div>
-
-      <!-- Pomodoro -->
-      <div class="pomodoro">
-        <h3>Pomodoro Timer</h3>
-        <div id="timer">25:00</div>
-        <button id="startTimer">Start</button>
-      </div>
-
-      <!-- AI Chat -->
-      <div class="chat-panel">
-        <h3>Study Assistant</h3>
-
-        <div id="chatMessages"></div>
-
-        <div class="chat-input-row">
-          <input type="text" id="chatInput"
-            placeholder="Ask anything about this subject..." />
-
-          <button id="sendBtn">Send</button>
+        <div class="stat-card">
+          ⭐
+          <span id="xp">0</span>
         </div>
+
+        <div class="stat-card">
+          🏆
+          <span id="level">1</span>
+        </div>
+
       </div>
 
-    </section>
+    </div>
+
+    <!-- UPLOAD -->
+
+    <div class="upload-area" id="dropZone">
+
+      <h3>Drop Files Here</h3>
+
+      <p>
+        PDF, DOCX, TXT, Images
+      </p>
+
+      <input
+        type="file"
+        id="fileInput"
+        multiple
+      >
+
+    </div>
+
+    <!-- FILES -->
+
+    <div class="glass-panel">
+
+      <h3>Uploaded Files</h3>
+
+      <ul id="fileList"></ul>
+
+    </div>
+
+    <!-- TOOLS -->
+
+    <div class="tools-grid">
+
+      <button class="tool-btn" id="summarizeBtn">
+        🧠 Summarize Notes
+      </button>
+
+      <button class="tool-btn" id="flashcardBtn">
+        🃏 Generate Flashcards
+      </button>
+
+      <button class="tool-btn" id="quizBtn">
+        ❓ Generate Quiz
+      </button>
+
+      <button class="tool-btn" id="studyPlanBtn">
+        📅 Study Plan
+      </button>
+
+      <button class="tool-btn" id="eli5Btn">
+        🧒 Explain Like I'm 5
+      </button>
+
+      <button class="tool-btn" id="mnemonicBtn">
+        🧩 Memory Tricks
+      </button>
+
+      <button class="tool-btn" id="practiceTestBtn">
+        📝 Practice Test
+      </button>
+
+      <button class="tool-btn" id="weaknessBtn">
+        📉 Weakness Detector
+      </button>
+
+    </div>
+
+    <!-- OUTPUT -->
+
+    <div class="glass-panel">
+
+      <h3>AI Output</h3>
+
+      <div id="output"></div>
+
+    </div>
+
+    <!-- CHAT -->
+
+    <div class="chat-panel">
+
+      <h3>Study Assistant</h3>
+
+      <div id="chatMessages"></div>
+
+      <div class="chat-row">
+
+        <input
+          type="text"
+          id="chatInput"
+          placeholder="Ask anything about this subject..."
+        >
+
+        <button id="sendBtn">
+          Send
+        </button>
+
+      </div>
+
+    </div>
+
+    <!-- POMODORO -->
+
+    <div class="glass-panel">
+
+      <h3>Pomodoro Timer</h3>
+
+      <div id="timer">
+        25:00
+      </div>
+
+      <button id="startTimer">
+        Start Timer
+      </button>
+
+    </div>
 
   </main>
 
 </div>
 
+<!-- Music -->
+
+<audio
+  id="studyMusic"
+  loop
+  src="https://cdn.pixabay.com/download/audio/2022/03/15/audio_c8c8a73467.mp3?filename=lofi-study-112191.mp3">
+</audio>
+
 <script src="script.js"></script>
+
 </body>
 </html>
