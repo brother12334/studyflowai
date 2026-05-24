@@ -231,11 +231,20 @@ async function askAI(prompt, systemPrompt) {
   const system = systemPrompt || `You are a focused study assistant. Answer ONLY from the study material provided. If the answer is not in the material, say "Not found in your study material." Be concise and helpful. Use markdown formatting: **bold** for key terms, bullet points for lists.`;
   const fullPrompt = `${system}\n\nSUBJECT: ${currentSubject.name}\n\nSTUDY MATERIAL:\n${context}\n\nTASK: ${prompt}`;
   try {
-    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`, {
+    const res = await fetch(
+  `https://generativelanguage.googleapis.com/v1beta/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`,
   {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ contents: [{ parts: [{ text: fullPrompt }] }] })
+    body: JSON.stringify({
+      contents: [
+        {
+          parts: [
+            { text: fullPrompt }
+          ]
+        }
+      ]
+    })
   }
 );
     const data = await res.json();
@@ -326,20 +335,28 @@ async function sendEditMessage() {
 
   try {
     const editSystem = "You are a study assistant helping edit flashcards or quiz questions. Follow the exact format. Output ONLY the cards/questions, no preamble.";
-    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`, {
-  {,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ contents: [{ parts: [{ text: `${editSystem}\n\n${formatPrompt}` }] }] })
-      }
-    );
-    const data = await res.json();
-    let text = data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || "No response.";
-    renderer(text);
-  } catch { typingDiv.innerHTML = "❌ Error contacting AI. Try again."; }
-}
+ const res = await fetch(
+  `https://generativelanguage.googleapis.com/v1beta/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`,
+  {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      contents: [
+        {
+          parts: [
+            {
+              text: `${editSystem}\n\n${formatPrompt}`
+            }
+          ]
+        }
+      ]
+    })
+  }
+);
 
+const data = await res.json();
+let text = data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || "No response.";
+renderer(text);
 function addEditMessage(text, type) {
   const div = document.createElement("div");
   div.className = `chat-bubble ${type}`;
