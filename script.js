@@ -3,7 +3,7 @@
 // Uses Google Gemini API (gemini-2.0-flash)
 // =========================
 
-const GEMINI_API_KEY = "AIzaSyAy7Ux8kvL092lJGzE9oAUgECiZxrOs9ko";
+const GEMINI_API_KEY = "AIzaSyCL1pYBWL-Cf3SmqGqBUalmyHBMppvp_VM";
 const GEMINI_MODEL = "gemini-2.0-flash";
 
 // =========================
