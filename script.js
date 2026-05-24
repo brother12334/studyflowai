@@ -112,16 +112,9 @@ ${prompt}
     return text;
 
   } catch (err) {
-
-    console.error(
-      "Claude API error:",
-      err
-    );
-
-    return "Network/API error.";
-  }
+  console.error("FULL ERROR:", err);
+  return `API failed: ${err.message}`;
 }
-
 // =========================
 // CHANGE API KEY BUTTON
 // =========================
