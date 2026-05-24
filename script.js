@@ -1,5 +1,6 @@
+
 // =========================
-// STUDYFLOW AI - GEMINI VERSION
+// STUDYFLOW AI - ADVANCED RAG VERSION
 // =========================
 
 // =========================
@@ -24,6 +25,71 @@ let currentSubject = null;
 
 function saveSubjects() {
   localStorage.setItem("subjects", JSON.stringify(subjects));
+}
+
+// =========================
+// CHUNKING (with page tracking)
+// =========================
+
+function chunkText(text, fileName, chunkSize = 1200) {
+
+  const chunks = [];
+  let page = 1;
+
+  for (let i = 0; i < text.length; i += chunkSize) {
+
+    const chunkText = text.slice(i, i + chunkSize);
+
+    chunks.push({
+      text: chunkText,
+      source: fileName,
+      page: page
+    });
+
+    page++;
+  }
+
+  return chunks;
+}
+
+// =========================
+// SEMANTIC SCORING (HYBRID)
+// =========================
+
+function scoreChunk(chunk, question) {
+
+  const qWords = question.toLowerCase().split(" ");
+  const text = chunk.text.toLowerCase();
+
+  let score = 0;
+
+  // keyword match
+  qWords.forEach(word => {
+    if (text.includes(word)) score += 2;
+  });
+
+  // density boost (semantic approximation)
+  const overlapRatio =
+    qWords.filter(w => text.includes(w)).length / qWords.length;
+
+  score += overlapRatio * 5;
+
+  return score;
+}
+
+// =========================
+// RETRIEVE RELEVANT CHUNKS
+// =========================
+
+function getRelevantChunks(question, chunks, limit = 6) {
+
+  return chunks
+    .map(c => ({
+      ...c,
+      score: scoreChunk(c, question)
+    }))
+    .sort((a, b) => b.score - a.score)
+    .slice(0, limit);
 }
 
 // =========================
@@ -62,11 +128,11 @@ document.getElementById("newSubjectBtn").onclick = () => {
     name,
     files: [],
     extractedText: "",
+    chunks: [], // IMPORTANT
     chatHistory: [],
     xp: 0,
     level: 1,
-    streak: 0,
-    missedTopics: []
+    streak: 0
   });
 
   saveSubjects();
@@ -98,17 +164,15 @@ function loadSubject(id) {
 }
 
 // =========================
-// FILE HANDLING
+// FILE UPLOAD
 // =========================
 
 document.getElementById("fileInput").onchange = handleFiles;
 
 async function handleFiles(e) {
 
-  if (!currentSubject) {
-    alert("Select a subject first");
-    return;
-  }
+  if (!currentSubject)
+    return alert("Select a subject first");
 
   const files = Array.from(e.target.files);
 
@@ -122,6 +186,11 @@ async function handleFiles(e) {
     });
 
     currentSubject.extractedText += "\n\n" + text;
+
+    // 🧠 NEW: structured chunking with page tracking
+    const newChunks = chunkText(text, file.name);
+
+    currentSubject.chunks.push(...newChunks);
   }
 
   saveSubjects();
@@ -134,12 +203,10 @@ async function handleFiles(e) {
 
 async function extractText(file) {
 
-  // TXT
   if (file.type === "text/plain") {
     return await file.text();
   }
 
-  // PDF
   if (file.type === "application/pdf") {
 
     const buffer = await file.arrayBuffer();
@@ -148,23 +215,27 @@ async function extractText(file) {
     let text = "";
 
     for (let i = 1; i <= pdf.numPages; i++) {
+
       const page = await pdf.getPage(i);
       const content = await page.getTextContent();
+
       text += content.items.map(i => i.str).join(" ");
     }
 
     return text;
   }
 
-  // DOCX
   if (file.name.endsWith(".docx")) {
+
     const buffer = await file.arrayBuffer();
-    const result = await mammoth.extractRawText({ arrayBuffer: buffer });
+    const result =
+      await mammoth.extractRawText({ arrayBuffer: buffer });
+
     return result.value;
   }
 
-  // IMAGE OCR
   if (file.type.startsWith("image/")) {
+
     const result = await Tesseract.recognize(file);
     return result.data.text;
   }
@@ -173,78 +244,90 @@ async function extractText(file) {
 }
 
 // =========================
-// RENDER FILES
+// AI CORE (WITH SOURCES + PAGE TRACKING)
 // =========================
 
-function renderFiles() {
+async function askAI(prompt, mode = "normal") {
 
-  const list = document.getElementById("fileList");
-  list.innerHTML = "";
-
-  if (!currentSubject) return;
-
-  currentSubject.files.forEach(file => {
-    const li = document.createElement("li");
-    li.textContent = file.name;
-    list.appendChild(li);
-  });
-}
-
-// =========================
-// GEMINI API
-// =========================
-
-async function askAI(prompt) {
-
-  if (!currentSubject) {
-    return "Please select a subject first.";
-  }
+  if (!currentSubject)
+    return "Select a subject first.";
 
   try {
+
+    const chunks = getRelevantChunks(
+      prompt,
+      currentSubject.chunks
+    );
+
+    const context = chunks.map(c => c.text).join("\n\n");
+
+    const sourceMap = chunks.map(c =>
+      `Source: ${c.source} | Page: ${c.page}`
+    ).join("\n");
+
+    const systemMode =
+      mode === "exam"
+        ? `
+YOU ARE IN EXAM PREDICTION MODE.
+
+Based on the material:
+- Predict likely exam questions
+- Identify key test topics
+- Highlight what teachers focus on most
+- Give a practice exam at the end
+        `
+        : `
+You are a strict study assistant.
+Only use the provided material.
+If missing, say: "Not found in study guides."
+        `;
 
     const res = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`,
       {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json"
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          contents: [
-            {
-              role: "user",
-              parts: [{
-                text: `
-You are a strict study assistant.
-
-ONLY use the uploaded study material.
-If missing, say:
-"That topic was not found in your uploaded study guides."
-
----
+          contents: [{
+            role: "user",
+            parts: [{
+              text: `
+${systemMode}
 
 SUBJECT:
 ${currentSubject.name}
 
-STUDY MATERIAL:
-${currentSubject.extractedText}
+RELEVANT CONTEXT:
+${context}
 
----
+SOURCE MAP:
+${sourceMap}
 
 QUESTION:
 ${prompt}
-                `
-              }]
-            }
-          ]
+              `
+            }]
+          }]
         })
       }
     );
 
     const data = await res.json();
 
-    return data?.candidates?.[0]?.content?.parts?.[0]?.text
-      || "No response.";
+    const text =
+      data?.candidates?.[0]?.content?.parts?.[0]?.text;
+
+    // =========================
+    // RETURN WITH SOURCE HIGHLIGHTING
+    // =========================
+
+    return `
+${text}
+
+------------------------
+📚 SOURCES USED:
+${sourceMap}
+    `;
 
   } catch (err) {
     console.error(err);
@@ -261,18 +344,18 @@ document.getElementById("sendBtn").onclick = sendMessage;
 async function sendMessage() {
 
   const input = document.getElementById("chatInput");
-  const message = input.value.trim();
+  const msg = input.value.trim();
 
-  if (!message) return;
+  if (!msg) return;
 
-  addMessage(message, "user");
+  addMessage(msg, "user");
   input.value = "";
 
-  const reply = await askAI(message);
+  const reply = await askAI(msg);
 
   addMessage(reply, "ai");
 
-  currentSubject.chatHistory.push({ role: "user", content: message });
+  currentSubject.chatHistory.push({ role: "user", content: msg });
   currentSubject.chatHistory.push({ role: "ai", content: reply });
 
   saveSubjects();
@@ -294,62 +377,50 @@ function renderChat() {
 
   if (!currentSubject) return;
 
-  currentSubject.chatHistory.forEach(msg => {
-    addMessage(msg.content, msg.role === "user" ? "user" : "ai");
+  currentSubject.chatHistory.forEach(m => {
+    addMessage(m.content, m.role === "user" ? "user" : "ai");
   });
 }
 
 // =========================
-// TOOL SYSTEM
+// TOOLS
 // =========================
 
-async function runTool(prompt) {
+function runTool(prompt, mode = "normal") {
 
-  const result = await askAI(prompt);
-
-  document.getElementById("output").textContent = result;
+  askAI(prompt, mode)
+    .then(res => {
+      document.getElementById("output").textContent = res;
+    });
 }
 
-// =========================
-// TOOL BUTTONS
-// =========================
-
+// normal tools
 document.getElementById("summarizeBtn").onclick = () =>
-  runTool("Summarize these notes into clean study notes.");
+  runTool("Summarize notes");
 
 document.getElementById("flashcardBtn").onclick = () =>
-  runTool("Generate 15 flashcards from the material.");
+  runTool("Generate flashcards");
 
-document.getElementById("quizBtn").onclick = () =>
-  runTool("Create a 10 question multiple choice quiz.");
+document.getElementById("quizBtn").onclick = () => {
+  runTool("Create quiz");
+  confetti();
+};
 
 document.getElementById("eli5Btn").onclick = () =>
-  runTool("Explain everything like I'm 5 years old.");
+  runTool("Explain like I'm 5");
 
 document.getElementById("mnemonicBtn").onclick = () =>
-  runTool("Create memory tricks and mnemonics.");
+  runTool("Create mnemonics");
 
 document.getElementById("practiceTestBtn").onclick = () =>
-  runTool("Create a full practice test with answers.");
+  runTool("Create practice test");
 
 document.getElementById("weaknessBtn").onclick = () =>
-  runTool("Identify weak topics and study gaps.");
+  runTool("Find weak topics");
 
-document.getElementById("studyPlanBtn").onclick = async () => {
-
-  const date = prompt("Exam date?");
-  const diff = prompt("Difficulty?");
-  const amt = prompt("Amount of material?");
-
-  const result = await askAI(`
-Create a study plan.
-
-Exam Date: ${date}
-Difficulty: ${diff}
-Material: ${amt}
-  `);
-
-  document.getElementById("output").textContent = result;
+// 🎯 EXAM PREDICTION MODE
+document.getElementById("studyPlanBtn").onclick = () => {
+  runTool("Predict exam questions and create study plan", "exam");
 };
 
 // =========================
@@ -360,11 +431,11 @@ document.getElementById("searchInput").oninput = (e) => {
 
   const val = e.target.value.toLowerCase();
 
-  document.querySelectorAll(".subject-card").forEach(card => {
-    card.style.display =
-      card.innerText.toLowerCase().includes(val)
-      ? "block"
-      : "none";
+  document.querySelectorAll(".subject-card").forEach(c => {
+    c.style.display =
+      c.innerText.toLowerCase().includes(val)
+        ? "block"
+        : "none";
   });
 };
 
@@ -387,57 +458,10 @@ dropZone.addEventListener("drop", e => {
   e.preventDefault();
   dropZone.classList.remove("dragging");
 
-  handleFiles({ target: { files: e.dataTransfer.files } });
+  handleFiles({
+    target: { files: e.dataTransfer.files }
+  });
 });
-
-// =========================
-// POMODORO
-// =========================
-
-let time = 1500;
-let running = false;
-
-document.getElementById("startTimer").onclick = () => {
-
-  if (running) return;
-  running = true;
-
-  const interval = setInterval(() => {
-
-    time--;
-
-    const m = Math.floor(time / 60);
-    const s = time % 60;
-
-    document.getElementById("timer").textContent =
-      `${m}:${s.toString().padStart(2, "0")}`;
-
-    if (time <= 0) {
-      clearInterval(interval);
-      running = false;
-      time = 1500;
-
-      alert("Pomodoro done!");
-      confetti();
-    }
-
-  }, 1000);
-};
-
-// =========================
-// MUSIC
-// =========================
-
-const music = document.getElementById("studyMusic");
-let playing = false;
-
-document.getElementById("musicToggle").onclick = () => {
-
-  if (playing) music.pause();
-  else music.play();
-
-  playing = !playing;
-};
 
 // =========================
 // INIT
