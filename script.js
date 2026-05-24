@@ -1,10 +1,10 @@
 // =========================
 // STUDYFLOW AI
-// Uses OpenRouter API (free tier)
+// Uses OpenRouter API (deepseek-r1 free)
 // =========================
 
 const OR_API_KEY = "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";
-const OR_MODEL = "openrouter/free";
+const OR_MODEL = "deepseek/deepseek-r1:free";
 
 // =========================
 // STATE
@@ -32,7 +32,6 @@ function save() {
 document.getElementById("newSubjectBtn").onclick = () => {
   const name = prompt("Subject name?");
   if (!name || !name.trim()) return;
-
   subjects.push({
     id: Date.now(),
     name: name.trim(),
@@ -43,7 +42,6 @@ document.getElementById("newSubjectBtn").onclick = () => {
     level: 1,
     streak: 0
   });
-
   save();
   renderSubjects();
 };
@@ -63,11 +61,9 @@ document.getElementById("searchInput").addEventListener("input", (e) => {
 function renderSubjects(filter = "") {
   const list = document.getElementById("subjectList");
   list.innerHTML = "";
-
   const filtered = filter
     ? subjects.filter(s => s.name.toLowerCase().includes(filter))
     : subjects;
-
   filtered.forEach(sub => {
     const div = document.createElement("div");
     div.className = "subject-card" + (currentSubject?.id === sub.id ? " active" : "");
@@ -103,18 +99,13 @@ dropZone.addEventListener("dragover", (e) => {
   e.preventDefault();
   dropZone.classList.add("dragging");
 });
-
-dropZone.addEventListener("dragleave", () => {
-  dropZone.classList.remove("dragging");
-});
-
+dropZone.addEventListener("dragleave", () => dropZone.classList.remove("dragging"));
 dropZone.addEventListener("drop", (e) => {
   e.preventDefault();
   dropZone.classList.remove("dragging");
   if (!currentSubject) { alert("Select a subject first."); return; }
   handleFileList(Array.from(e.dataTransfer.files));
 });
-
 document.getElementById("fileInput").onchange = (e) => {
   if (!currentSubject) { alert("Select a subject first."); return; }
   handleFileList(Array.from(e.target.files));
@@ -138,9 +129,7 @@ async function handleFileList(files) {
 // =========================
 
 async function extractText(file) {
-  if (file.type === "text/plain") {
-    return await file.text();
-  }
+  if (file.type === "text/plain") return await file.text();
 
   if (file.type === "application/pdf") {
     try {
@@ -153,24 +142,16 @@ async function extractText(file) {
         text += "\n" + content.items.map(i => i.str).join(" ");
       }
       return text;
-    } catch (err) {
-      console.error("PDF error:", err);
-      return "";
-    }
+    } catch (err) { console.error("PDF error:", err); return ""; }
   }
 
-  if (
-    file.name.endsWith(".docx") ||
-    file.type === "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-  ) {
+  if (file.name.endsWith(".docx") ||
+    file.type === "application/vnd.openxmlformats-officedocument.wordprocessingml.document") {
     try {
       const buffer = await file.arrayBuffer();
       const result = await mammoth.extractRawText({ arrayBuffer: buffer });
       return result.value;
-    } catch (err) {
-      console.error("DOCX error:", err);
-      return "";
-    }
+    } catch (err) { console.error("DOCX error:", err); return ""; }
   }
 
   return "";
@@ -212,7 +193,7 @@ function getRelevantChunks(question) {
 // OPENROUTER API
 // =========================
 
-async function askAI(prompt) {
+async function askAI(prompt, systemPrompt) {
   if (!currentSubject) return "Select a subject first.";
   if (!currentSubject.chunks.length) return "No study material uploaded yet. Add files first.";
 
@@ -222,7 +203,8 @@ async function askAI(prompt) {
     .map(c => c.text.slice(0, 600))
     .join("\n\n");
 
-  const sources = chunks.map(c => `${c.source} | Chunk ${c.page}`).join("\n");
+  const system = systemPrompt ||
+    "You are a focused study assistant. Answer ONLY from the study material provided. If the answer is not in the material, say \"Not found in your study material.\" Be concise and helpful. Use markdown formatting: **bold** for key terms, bullet points for lists.";
 
   try {
     const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
@@ -234,26 +216,17 @@ async function askAI(prompt) {
       body: JSON.stringify({
         model: OR_MODEL,
         messages: [
-          {
-            role: "system",
-            content: "You are a focused study assistant. Answer ONLY from the study material provided. If the answer is not in the material, say \"Not found in your study material.\" Be concise and helpful."
-          },
-          {
-            role: "user",
-            content: `SUBJECT: ${currentSubject.name}\n\nSTUDY MATERIAL:\n${context}\n\nQUESTION: ${prompt}`
-          }
+          { role: "system", content: system },
+          { role: "user", content: `SUBJECT: ${currentSubject.name}\n\nSTUDY MATERIAL:\n${context}\n\nTASK: ${prompt}` }
         ]
       })
     });
 
     const data = await res.json();
-
     if (data.error) return `API error: ${data.error.message}`;
-
     const text = data?.choices?.[0]?.message?.content?.trim();
     if (!text) return "AI returned an empty response. Try rephrasing.";
-
-    return `${text}\n\n---\nSources:\n${sources}`;
+    return text;
 
   } catch (err) {
     console.error("AI error:", err);
@@ -262,24 +235,224 @@ async function askAI(prompt) {
 }
 
 // =========================
+// MARKDOWN RENDERER
+// =========================
+
+function renderMarkdown(text) {
+  // Remove <think>...</think> blocks (DeepSeek reasoning traces)
+  text = text.replace(/<think>[\s\S]*?<\/think>/gi, "").trim();
+
+  return text
+    .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
+    .replace(/\*(.+?)\*/g, "<em>$1</em>")
+    .replace(/^### (.+)$/gm, "<h4>$1</h4>")
+    .replace(/^## (.+)$/gm, "<h3>$1</h3>")
+    .replace(/^# (.+)$/gm, "<h2>$1</h2>")
+    .replace(/^[-•] (.+)$/gm, "<li>$1</li>")
+    .replace(/(<li>.*<\/li>)/gs, "<ul>$1</ul>")
+    .replace(/\n{2,}/g, "</p><p>")
+    .replace(/^(?!<[hulo])(.+)$/gm, (m) => m.trim() ? m : "")
+    .replace(/\n/g, "<br>");
+}
+
+function setOutput(html, isHTML = false) {
+  const out = document.getElementById("output");
+  if (isHTML) {
+    out.innerHTML = html;
+  } else {
+    out.innerHTML = `<p>${renderMarkdown(html)}</p>`;
+  }
+}
+
+// =========================
+// FLASHCARD RENDERER
+// =========================
+
+function renderFlashcards(text) {
+  // Strip thinking blocks
+  text = text.replace(/<think>[\s\S]*?<\/think>/gi, "").trim();
+
+  // Parse Q:/A: pairs
+  const pairs = [];
+  const lines = text.split("\n");
+  let currentQ = "", currentA = "";
+
+  for (let line of lines) {
+    line = line.trim();
+    if (line.match(/^Q[:)]/i)) {
+      if (currentQ && currentA) pairs.push({ q: currentQ, a: currentA });
+      currentQ = line.replace(/^Q[:)]\s*/i, "");
+      currentA = "";
+    } else if (line.match(/^A[:)]/i)) {
+      currentA = line.replace(/^A[:)]\s*/i, "");
+    } else if (currentA && line) {
+      currentA += " " + line;
+    }
+  }
+  if (currentQ && currentA) pairs.push({ q: currentQ, a: currentA });
+
+  if (pairs.length === 0) {
+    setOutput(text);
+    return;
+  }
+
+  let html = `<div class="flashcard-grid">`;
+  pairs.forEach((pair, i) => {
+    html += `
+      <div class="flashcard" onclick="this.classList.toggle('flipped')">
+        <div class="flashcard-inner">
+          <div class="flashcard-front">
+            <span class="card-label">Q ${i + 1}</span>
+            <p>${pair.q}</p>
+            <span class="flip-hint">tap to reveal</span>
+          </div>
+          <div class="flashcard-back">
+            <span class="card-label">Answer</span>
+            <p>${pair.a}</p>
+          </div>
+        </div>
+      </div>`;
+  });
+  html += `</div>`;
+  setOutput(html, true);
+}
+
+// =========================
+// QUIZ RENDERER
+// =========================
+
+function renderQuiz(text) {
+  text = text.replace(/<think>[\s\S]*?<\/think>/gi, "").trim();
+
+  // Parse questions with options
+  const questions = [];
+  const blocks = text.split(/\n(?=\d+[\.\)])/);
+
+  for (let block of blocks) {
+    block = block.trim();
+    if (!block) continue;
+
+    const lines = block.split("\n").map(l => l.trim()).filter(Boolean);
+    if (lines.length < 3) continue;
+
+    const qText = lines[0].replace(/^\d+[\.\)]\s*/, "");
+    const options = [];
+    let correct = -1;
+
+    for (let i = 1; i < lines.length; i++) {
+      const line = lines[i];
+      const match = line.match(/^([A-D])[\.\)]\s*(.+)/i);
+      if (match) {
+        const isCorrect = line.includes("✓") || line.toLowerCase().includes("(correct)") ||
+          line.includes("*") || line.match(/\[correct\]/i);
+        options.push({ letter: match[1].toUpperCase(), text: match[2].replace(/[✓*]|\(correct\)|\[correct\]/gi, "").trim() });
+        if (isCorrect) correct = options.length - 1;
+      } else if (line.toLowerCase().includes("answer:") || line.toLowerCase().includes("correct:")) {
+        const ans = line.match(/[A-D]/i);
+        if (ans) correct = "ABCD".indexOf(ans[0].toUpperCase());
+      }
+    }
+
+    if (options.length >= 2) {
+      questions.push({ q: qText, options, correct });
+    }
+  }
+
+  if (questions.length === 0) {
+    setOutput(text);
+    return;
+  }
+
+  let html = `<div class="quiz-container" id="quizContainer">`;
+  questions.forEach((q, qi) => {
+    html += `
+      <div class="quiz-question" id="qq-${qi}">
+        <p class="q-text"><strong>Q${qi + 1}.</strong> ${q.q}</p>
+        <div class="q-options">`;
+    q.options.forEach((opt, oi) => {
+      html += `<button class="q-opt" onclick="answerQ(${qi}, ${oi}, ${q.correct})" id="opt-${qi}-${oi}">
+        <span class="opt-letter">${opt.letter}</span> ${opt.text}
+      </button>`;
+    });
+    html += `</div><div class="q-feedback" id="fb-${qi}"></div></div>`;
+  });
+
+  html += `
+    <div class="quiz-score" id="quizScore" style="display:none">
+      <h3>Results</h3>
+      <p id="scoreText"></p>
+      <button onclick="resetQuiz()" class="tool-btn" style="margin-top:12px">Try Again</button>
+    </div>
+  </div>`;
+
+  setOutput(html, true);
+
+  // Store answers for scoring
+  window._quizData = { questions, answered: 0, correct: 0, total: questions.length };
+}
+
+window.answerQ = function(qi, oi, correct) {
+  const qd = window._quizData;
+  if (!qd) return;
+
+  const allOpts = document.querySelectorAll(`#qq-${qi} .q-opt`);
+  allOpts.forEach(b => b.disabled = true);
+
+  const chosen = document.getElementById(`opt-${qi}-${oi}`);
+  const fb = document.getElementById(`fb-${qi}`);
+
+  if (oi === correct) {
+    chosen.classList.add("correct");
+    fb.textContent = "✅ Correct!";
+    fb.style.color = "#4ade80";
+    qd.correct++;
+  } else {
+    chosen.classList.add("wrong");
+    fb.textContent = correct >= 0
+      ? `❌ Wrong — correct answer was ${qd.questions[qi].options[correct]?.letter}`
+      : "❌ Wrong";
+    fb.style.color = "#f87171";
+    if (correct >= 0) {
+      const correctBtn = document.getElementById(`opt-${qi}-${correct}`);
+      if (correctBtn) correctBtn.classList.add("correct");
+    }
+  }
+
+  qd.answered++;
+  if (qd.answered === qd.total) {
+    const scoreEl = document.getElementById("quizScore");
+    const pct = Math.round((qd.correct / qd.total) * 100);
+    document.getElementById("scoreText").textContent =
+      `You got ${qd.correct} / ${qd.total} correct (${pct}%) ${pct >= 70 ? "🎉" : "📖 Keep studying!"}`;
+    scoreEl.style.display = "block";
+    awardXP(qd.correct * 5);
+  }
+};
+
+window.resetQuiz = function() {
+  document.getElementById("quizBtn").click();
+};
+
+// =========================
 // TOOL BUTTONS
 // =========================
 
-function setOutput(text) {
-  document.getElementById("output").textContent = text;
-}
-
-async function runTool(prompt, btnId) {
+async function runTool(prompt, btnId, renderer) {
   if (!currentSubject) { alert("Select a subject first."); return; }
   if (!currentSubject.chunks.length) { alert("Upload study files first."); return; }
 
   const btn = document.getElementById(btnId);
   btn.disabled = true;
   btn.classList.add("loading");
-  setOutput("Thinking...");
+  document.getElementById("output").innerHTML = `<p style="opacity:0.5">⏳ Thinking...</p>`;
 
   const result = await askAI(prompt);
-  setOutput(result);
+
+  if (renderer) {
+    renderer(result);
+  } else {
+    setOutput(result);
+  }
   awardXP(10);
 
   btn.disabled = false;
@@ -287,35 +460,65 @@ async function runTool(prompt, btnId) {
 }
 
 document.getElementById("summarizeBtn").onclick = () =>
-  runTool("Summarize all the key concepts and important points from this study material.", "summarizeBtn");
+  runTool("Summarize all the key concepts and important points from this study material. Use headers, bold key terms, and bullet points.", "summarizeBtn");
 
 document.getElementById("flashcardBtn").onclick = () =>
-  runTool("Create 10 flashcard-style Q&A pairs from this study material. Format each as:\nQ: ...\nA: ...", "flashcardBtn");
+  runTool(
+    `Create exactly 10 flashcard Q&A pairs from this study material.
+Use this EXACT format for each, with no extra text between them:
+Q: [question here]
+A: [answer here]`,
+    "flashcardBtn",
+    renderFlashcards
+  );
 
 document.getElementById("quizBtn").onclick = () =>
-  runTool("Generate 5 multiple choice quiz questions from this study material. Include 4 answer options (A-D) and mark the correct answer.", "quizBtn");
+  runTool(
+    `Generate 5 multiple choice questions from this study material.
+Use this EXACT format:
+1. [Question text]
+A. [option]
+B. [option]
+C. [option] (correct)
+D. [option]
+
+Mark the correct answer with (correct) after it.`,
+    "quizBtn",
+    renderQuiz
+  );
 
 document.getElementById("studyPlanBtn").onclick = () =>
-  runTool("Create a structured study plan for mastering this material. Break it into daily sessions with specific topics.", "studyPlanBtn");
+  runTool("Create a structured study plan for mastering this material. Break it into daily sessions with specific topics. Use bold headings and bullet points.", "studyPlanBtn");
 
 document.getElementById("eli5Btn").onclick = () =>
-  runTool("Explain the main concepts from this study material like I am 5 years old. Use simple words and fun analogies.", "eli5Btn");
+  runTool("Explain the main concepts from this study material like I am 5 years old. Use simple words, fun analogies, and bullet points.", "eli5Btn");
 
 document.getElementById("mnemonicBtn").onclick = () =>
-  runTool("Create memory tricks, mnemonics, and acronyms to help remember the key concepts in this study material.", "mnemonicBtn");
+  runTool("Create memory tricks, mnemonics, and acronyms to help remember the key concepts. Use bold for the mnemonics.", "mnemonicBtn");
 
 document.getElementById("practiceTestBtn").onclick = () =>
-  runTool("Create a full practice test with: 5 multiple choice questions, 3 short answer questions, and 1 essay question. Base it entirely on the study material.", "practiceTestBtn");
+  runTool(
+    `Create a practice test with 6 multiple choice questions from this study material.
+Use this EXACT format:
+1. [Question text]
+A. [option]
+B. [option]
+C. [option] (correct)
+D. [option]
+
+Mark the correct answer with (correct) after it.`,
+    "practiceTestBtn",
+    renderQuiz
+  );
 
 document.getElementById("weaknessBtn").onclick = () =>
-  runTool("Identify the 3-5 most complex or tricky concepts in this material that students commonly struggle with. Explain why each is difficult and give tips for mastering them.", "weaknessBtn");
+  runTool("Identify the 3-5 most complex or tricky concepts in this material. Use bold headers for each concept, explain why it is difficult, and give tips for mastering it.", "weaknessBtn");
 
 // =========================
 // CHAT
 // =========================
 
 document.getElementById("sendBtn").onclick = sendMessage;
-
 document.getElementById("chatInput").addEventListener("keydown", (e) => {
   if (e.key === "Enter") sendMessage();
 });
@@ -330,10 +533,13 @@ async function sendMessage() {
 
   const typingDiv = addMessage("...", "ai");
   const reply = await askAI(msg);
-  typingDiv.textContent = reply;
+
+  // Strip thinking blocks from chat too
+  const clean = reply.replace(/<think>[\s\S]*?<\/think>/gi, "").trim();
+  typingDiv.innerHTML = renderMarkdown(clean);
 
   currentSubject.chatHistory.push({ role: "user", content: msg });
-  currentSubject.chatHistory.push({ role: "ai", content: reply });
+  currentSubject.chatHistory.push({ role: "ai", content: clean });
 
   awardXP(5);
   save();
@@ -342,7 +548,11 @@ async function sendMessage() {
 function addMessage(text, type) {
   const div = document.createElement("div");
   div.className = `chat-bubble ${type}`;
-  div.textContent = text;
+  if (type === "ai") {
+    div.innerHTML = renderMarkdown(text);
+  } else {
+    div.textContent = text;
+  }
   const box = document.getElementById("chatMessages");
   box.appendChild(div);
   box.scrollTop = box.scrollHeight;
@@ -412,7 +622,6 @@ document.getElementById("themeToggle").onclick = () => {
 // =========================
 
 const music = document.getElementById("studyMusic");
-
 document.getElementById("musicToggle").onclick = () => {
   if (musicPlaying) {
     music.pause();
