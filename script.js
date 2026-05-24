@@ -2,21 +2,30 @@
 // CLAUDE API SETUP
 // =========================
 
-let CLAUDE_API_KEY = localStorage.getItem("claude_api_key") || "";
-const CLAUDE_MODEL = "claude-3-5-sonnet-latest";
+let CLAUDE_API_KEY =
+  localStorage.getItem("claude_api_key") || "";
+
+const CLAUDE_MODEL =
+  "claude-3-5-sonnet-latest";
 
 // Ask user for API key if missing
 if (!CLAUDE_API_KEY) {
-  const enteredKey = prompt("Enter your Claude API Key:");
+
+  const enteredKey =
+    prompt("Enter your Claude API Key:");
 
   if (enteredKey && enteredKey.trim()) {
-    CLAUDE_API_KEY = enteredKey.trim();
+
+    CLAUDE_API_KEY =
+      enteredKey.trim();
 
     localStorage.setItem(
       "claude_api_key",
       CLAUDE_API_KEY
     );
+
   } else {
+
     alert("Claude API key required.");
   }
 }
@@ -26,6 +35,7 @@ if (!CLAUDE_API_KEY) {
 // =========================
 
 async function askAI(prompt, systemPrompt) {
+
   if (!currentSubject)
     return "Select a subject first.";
 
@@ -66,6 +76,7 @@ ${prompt}
 `;
 
   try {
+
     const res = await fetch(
       "https://api.anthropic.com/v1/messages",
       {
@@ -74,15 +85,17 @@ ${prompt}
         headers: {
           "Content-Type": "application/json",
           "x-api-key": CLAUDE_API_KEY,
-          "anthropic-version": "2023-06-01"
+          "anthropic-version": "2023-06-01",
+          "anthropic-dangerous-direct-browser-access": "true"
         },
 
         body: JSON.stringify({
+
           model: CLAUDE_MODEL,
 
           max_tokens: 500,
 
-          system,
+          system: system,
 
           messages: [
             {
@@ -90,16 +103,19 @@ ${prompt}
               content: fullPrompt
             }
           ]
+
         })
       }
     );
 
     const data = await res.json();
 
-    console.log(data);
+    console.log("Claude response:", data);
 
-    if (data.error) {
-      return `API Error: ${data.error.message}`;
+    if (!res.ok) {
+      return `API Error: ${
+        data?.error?.message || "Unknown error"
+      }`;
     }
 
     const text =
@@ -112,9 +128,13 @@ ${prompt}
     return text;
 
   } catch (err) {
-  console.error("FULL ERROR:", err);
-  return `API failed: ${err.message}`;
+
+    console.error("FULL ERROR:", err);
+
+    return `API failed: ${err.message}`;
+  }
 }
+
 // =========================
 // CHANGE API KEY BUTTON
 // =========================
