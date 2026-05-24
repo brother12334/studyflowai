@@ -2,13 +2,64 @@
 // STUDYFLOW AI — Gemini 2.5 Flash
 // =========================
 
-const GEMINI_MODEL = "models/gemini-2.5-flash";
+const CLAUDE_API_KEY = "YOUR_KEY_HERE";
+const CLAUDE_MODEL = "claude-3-5-sonnet-latest";
 
-// API key stored in localStorage — never hardcoded
-let GEMINI_API_KEY = localStorage.getItem("gemini_api_key") || "";
-if (!GEMINI_API_KEY) {
-  GEMINI_API_KEY = prompt("Enter your Gemini API key (get one free at aistudio.google.com/apikey):");
-  if (GEMINI_API_KEY) localStorage.setItem("gemini_api_key", GEMINI_API_KEY);
+async function askAI(prompt, systemPrompt) {
+  if (!currentSubject) return "Select a subject first.";
+  if (!currentSubject.chunks.length) return "No study material uploaded yet.";
+
+  const chunks = getRelevantChunks(prompt);
+
+  const context = chunks
+    .map(c => c.text.split(" ").slice(0, 180).join(" "))
+    .join("\n\n");
+
+  const system = systemPrompt || `
+You are a strict study assistant.
+Only use provided material.
+If missing, say "Not found in your study material."
+Be concise.
+`;
+
+  const fullPrompt = `
+SUBJECT: ${currentSubject.name}
+
+STUDY MATERIAL:
+${context}
+
+QUESTION:
+${prompt}
+`;
+
+  try {
+    const res = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": CLAUDE_API_KEY,
+        "anthropic-version": "2023-06-01"
+      },
+      body: JSON.stringify({
+        model: CLAUDE_MODEL,
+        max_tokens: 500,
+        system,
+        messages: [
+          {
+            role: "user",
+            content: fullPrompt
+          }
+        ]
+      })
+    });
+
+    const data = await res.json();
+
+    return data?.content?.[0]?.text?.trim() || "No response.";
+  } catch (err) {
+    console.error(err);
+    return "API error.";
+  }
 }
 
 // =========================
@@ -260,7 +311,7 @@ async function askAI(prompt, systemPrompt) {
   if (!currentSubject) return "Select a subject first.";
   if (!currentSubject.chunks.length) return "No study material uploaded yet. Add files first.";
   const chunks = getRelevantChunks(prompt);
-  const context = chunks.filter(c => c.text && c.text.length > 20).map(c => c.text.slice(0, 800)).join("\n\n");
+  const context = chunks.filter(c => c.text && c.text.length > 20).map(c => c.text.split(" ").slice(0, 180).join(" ")).join("\n\n");
   const system = systemPrompt || `You are a focused study assistant. Answer ONLY from the study material provided. If the answer is not in the material, say "Not found in your study material." Be concise and helpful. Use markdown formatting: **bold** for key terms, bullet points for lists.`;
   const fullPrompt = `${system}\n\nSUBJECT: ${currentSubject.name}\n\nSTUDY MATERIAL:\n${context}\n\nTASK: ${prompt}`;
   try {
