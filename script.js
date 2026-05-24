@@ -15,7 +15,7 @@ if (!CLAUDE_API_KEY) {
 }
 
 // ✅ WORKING MODEL
-const CLAUDE_MODEL = "claude-3-5-sonnet-latest";
+const CLAUDE_MODEL = "claude-sonnet-4-6";
 
 async function askAI(prompt, systemPrompt) {
   if (!currentSubject) return "Select a subject first.";
