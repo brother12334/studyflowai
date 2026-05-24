@@ -216,10 +216,33 @@ function getRelevantChunks(question) {
     .sort((a, b) => b.score - a.score).slice(0, 6);
 }
 
-// Returns ALL chunks joined — used for flashcard/quiz generation so nothing is missed
+// Returns context sampled evenly across ALL files so no document is ignored.
 function getAllChunksContext() {
   if (!currentSubject || !currentSubject.chunks.length) return "";
-  return currentSubject.chunks.map(c => c.text).join("\n\n");
+
+  const MAX_CHARS = 80000;
+
+  // Group chunks by source file
+  const byFile = {};
+  for (const chunk of currentSubject.chunks) {
+    const src = chunk.source || "unknown";
+    if (!byFile[src]) byFile[src] = [];
+    byFile[src].push(chunk);
+  }
+
+  const files = Object.keys(byFile);
+  const charsPerFile = Math.floor(MAX_CHARS / files.length);
+
+  const parts = files.map(src => {
+    let text = "";
+    for (const chunk of byFile[src]) {
+      if (text.length + chunk.text.length > charsPerFile) break;
+      text += chunk.text + "\n\n";
+    }
+    return `--- Source: ${src} ---\n` + text.trim();
+  });
+
+  return parts.join("\n\n");
 }
 
 // =========================
