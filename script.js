@@ -2,13 +2,14 @@
 // STUDYFLOW AI — Gemini 2.5 Flash
 // =========================
 
-let GEMINI_API_KEY = localStorage.getItem("gemini_api_key") || "";
+const GEMINI_MODEL = "models/gemini-2.5-flash";
 
+// API key stored in localStorage — never hardcoded
+let GEMINI_API_KEY = localStorage.getItem("gemini_api_key") || "";
 if (!GEMINI_API_KEY) {
-  GEMINI_API_KEY = prompt("Enter your Gemini API key:");
+  GEMINI_API_KEY = prompt("Enter your Gemini API key (get one free at aistudio.google.com/apikey):");
   if (GEMINI_API_KEY) localStorage.setItem("gemini_api_key", GEMINI_API_KEY);
 }
-const GEMINI_MODEL = "models/gemini-2.5-flash";
 
 // =========================
 // STATE
@@ -215,6 +216,12 @@ function getRelevantChunks(question) {
     .sort((a, b) => b.score - a.score).slice(0, 6);
 }
 
+// Returns ALL chunks joined — used for flashcard/quiz generation so nothing is missed
+function getAllChunksContext() {
+  if (!currentSubject || !currentSubject.chunks.length) return "";
+  return currentSubject.chunks.map(c => c.text).join("\n\n");
+}
+
 // =========================
 // GEMINI API
 // =========================
@@ -225,6 +232,29 @@ async function askAI(prompt, systemPrompt) {
   const context = chunks.filter(c => c.text && c.text.length > 20).map(c => c.text.slice(0, 800)).join("\n\n");
   const system = systemPrompt || `You are a focused study assistant. Answer ONLY from the study material provided. If the answer is not in the material, say "Not found in your study material." Be concise and helpful. Use markdown formatting: **bold** for key terms, bullet points for lists.`;
   const fullPrompt = `${system}\n\nSUBJECT: ${currentSubject.name}\n\nSTUDY MATERIAL:\n${context}\n\nTASK: ${prompt}`;
+  try {
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ contents: [{ parts: [{ text: fullPrompt }] }] })
+      }
+    );
+    const data = await res.json();
+    if (data.error) return `API error: ${data.error.message}`;
+    const text = data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+    if (!text) return "AI returned an empty response. Try rephrasing.";
+    return text;
+  } catch (err) { console.error("AI error:", err); return "Network or API error. Check your connection."; }
+}
+
+// Uses ALL chunks — for flashcard/quiz generation where full coverage matters
+async function askAIFull(prompt) {
+  if (!currentSubject) return "Select a subject first.";
+  if (!currentSubject.chunks.length) return "No study material uploaded yet. Add files first.";
+  const context = getAllChunksContext();
+  const fullPrompt = `You are a study assistant generating exam material. Use ONLY the study material below.\n\nSUBJECT: ${currentSubject.name}\n\nSTUDY MATERIAL:\n${context}\n\nTASK: ${prompt}`;
   try {
     const res = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`,
@@ -434,6 +464,9 @@ function renderFlashcardUI(pairs) {
 
 function setupFCKeyboard() {
   document.onkeydown = (e) => {
+    // Never hijack keypresses when the user is typing in any input or textarea
+    const tag = document.activeElement?.tagName;
+    if (tag === "INPUT" || tag === "TEXTAREA") return;
     if (e.key === "ArrowRight") window.fcNext?.();
     else if (e.key === "ArrowLeft") window.fcPrev?.();
     else if (e.key === " ") { e.preventDefault(); window.toggleFlip?.(); }
@@ -543,28 +576,51 @@ async function runTool(prompt, btnId, renderer) {
   btn.disabled = false; btn.classList.remove("loading");
 }
 
+// runToolFull uses ALL chunks — for exhaustive generation tools
+async function runToolFull(prompt, btnId, renderer) {
+  if (!currentSubject) { alert("Select a subject first."); return; }
+  if (!currentSubject.chunks.length) { alert("Upload study files first."); return; }
+  const btn = document.getElementById(btnId);
+  btn.disabled = true; btn.classList.add("loading");
+  document.getElementById("output").innerHTML = `<p style="opacity:0.5">⏳ Generating from full material...</p>`;
+  hideEditPanel();
+  const result = await askAIFull(prompt);
+  renderer ? renderer(result) : setOutput(result);
+  awardXP(10);
+  btn.disabled = false; btn.classList.remove("loading");
+}
+
 document.getElementById("summarizeBtn").onclick = () => runTool(
   "Summarize all the key concepts and important points from this study material. Use headers, bold key terms, and bullet points.",
   "summarizeBtn"
 );
 
-// FIXED: concise flashcard prompt that covers all material
-document.getElementById("flashcardBtn").onclick = () => runTool(
-  `Create flashcards that cover EVERY key concept, term, fact, and process in this study material. 
-Rules:
-- Generate as many cards as needed to cover ALL the material — do not skip anything important.
-- Questions must be specific and exam-focused (definitions, causes, effects, dates, formulas, processes).
-- Answers must be SHORT: 1 sentence or a tight list of 2–4 items max. No padding or explanation.
-- Do NOT write conversational or vague questions like "What is important about X?" — ask for specific facts.
-Use this EXACT format with no extra text:
-Q: [specific question]
-A: [concise answer, max 1-2 sentences]`,
+document.getElementById("flashcardBtn").onclick = () => runToolFull(
+  `Read ALL of the study material and create a flashcard for EVERY distinct fact, term, definition, concept, date, formula, process, and key point — no matter how many cards that takes. Do not stop early. Do not group things together to save cards.
+
+STRICT RULES:
+- One card per fact. If there are 40 facts, make 40 cards.
+- Questions: specific and exam-style. E.g. "What is X?", "What causes Y?", "What year did Z?", "List the steps of W."
+- Answers: MAX 1 sentence or 3–5 word list. Cut every unnecessary word.
+- NO vague questions like "What is important about X?" — only testable specifics.
+- NO filler, preamble, or commentary. Output ONLY the cards.
+
+EXACT FORMAT — every card must follow this precisely:
+Q: [question]
+A: [answer]`,
   "flashcardBtn", renderFlashcards
 );
 
-document.getElementById("quizBtn").onclick = () => runTool(
-  `Generate 5 multiple choice questions from this study material.
-Use this EXACT format:
+document.getElementById("quizBtn").onclick = () => runToolFull(
+  `Read ALL of the study material and generate a multiple choice question for every major concept, fact, term, and process — use as many questions as the material requires, minimum 10. Do not stop early.
+
+STRICT RULES:
+- One question per concept. Cover everything.
+- Questions must be specific and testable, not vague.
+- Wrong options must be plausible, not obviously silly.
+- NO preamble or commentary. Output ONLY the questions.
+
+EXACT FORMAT:
 1. [Question text]
 A. [option]
 B. [option]
@@ -590,9 +646,16 @@ document.getElementById("mnemonicBtn").onclick = () => runTool(
   "mnemonicBtn"
 );
 
-document.getElementById("practiceTestBtn").onclick = () => runTool(
-  `Create a practice test with 6 multiple choice questions from this study material.
-Use this EXACT format:
+document.getElementById("practiceTestBtn").onclick = () => runToolFull(
+  `Read ALL of the study material and generate a comprehensive practice test covering every topic — use as many questions as needed, minimum 15. Prioritize the most testable and important facts.
+
+STRICT RULES:
+- Cover every section and topic in the material.
+- Questions must be specific, not vague or generic.
+- Wrong options must be plausible.
+- NO preamble or commentary. Output ONLY the questions.
+
+EXACT FORMAT:
 1. [Question text]
 A. [option]
 B. [option]
@@ -688,6 +751,18 @@ themeBtn.onclick = () => {
   themeBtn.textContent = isLight ? "🌞 Light Mode" : "🌙 Dark Mode";
   localStorage.setItem("theme", isLight ? "light" : "dark");
 };
+
+// =========================
+// RESET API KEY
+// =========================
+document.getElementById("resetKeyBtn")?.addEventListener("click", () => {
+  const newKey = prompt("Enter new Gemini API key:");
+  if (newKey && newKey.trim()) {
+    GEMINI_API_KEY = newKey.trim();
+    localStorage.setItem("gemini_api_key", GEMINI_API_KEY);
+    alert("API key updated!");
+  }
+});
 
 // =========================
 // MUSIC TOGGLE
