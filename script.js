@@ -5,8 +5,7 @@
 let CLAUDE_API_KEY =
   localStorage.getItem("claude_api_key") || "";
 
-const CLAUDE_MODEL =
-  "claude-3-5-sonnet-latest";
+const CLAUDE_MODEL = "claude-3-5-sonnet-20241022";
 
 // Ask user for API key if missing
 if (!CLAUDE_API_KEY) {
