@@ -1,5 +1,5 @@
 // =========================
-// STUDYFLOW AI - STABLE GEMINI VERSION
+// STUDYFLOW AI - STABLE GEMINI VERSION (FIXED)
 // =========================
 
 const GEMINI_API_KEY = "AIzaSyAsYbE0FoMeMWbGIrTAr_sZbM16wKYr7xk";
@@ -69,7 +69,7 @@ function renderSubjects() {
 }
 
 // =========================
-// LOAD SUBJECT (ISOLATED AI)
+// LOAD SUBJECT
 // =========================
 
 function loadSubject(id) {
@@ -131,10 +131,8 @@ async function extractText(file) {
     let text = "";
 
     for (let i = 1; i <= pdf.numPages; i++) {
-
       const page = await pdf.getPage(i);
       const content = await page.getTextContent();
-
       text += "\n" + content.items.map(i => i.str).join(" ");
     }
 
@@ -145,7 +143,7 @@ async function extractText(file) {
 }
 
 // =========================
-// CHUNKING (WITH SOURCE + PAGE)
+// CHUNKING
 // =========================
 
 function chunkText(text, fileName, size = 1200) {
@@ -168,33 +166,33 @@ function chunkText(text, fileName, size = 1200) {
 }
 
 // =========================
-// SMART RETRIEVAL
+// SMART RETRIEVAL (FIXED LIMIT)
 // =========================
 
 function getRelevantChunks(question) {
 
   if (!currentSubject) return [];
 
+  const words = question.toLowerCase().split(" ");
+
   return currentSubject.chunks
     .map(c => {
 
       let score = 0;
-
-      const words = question.toLowerCase().split(" ");
       const text = c.text.toLowerCase();
 
-      words.forEach(w => {
+      for (let w of words) {
         if (text.includes(w)) score += 2;
-      });
+      }
 
       return { ...c, score };
     })
     .sort((a, b) => b.score - a.score)
-    .slice(0, 6);
+    .slice(0, 3); // 🔥 IMPORTANT FIX: reduced from 4 → 3
 }
 
 // =========================
-// SAFE GEMINI PARSER (FIXED)
+// GEMINI RESPONSE PARSER (SAFE)
 // =========================
 
 function extractGeminiText(data) {
@@ -210,14 +208,11 @@ function extractGeminiText(data) {
     return null;
   }
 
-  return parts
-    .map(p => p.text || "")
-    .join("")
-    .trim();
+  return parts.map(p => p.text || "").join("").trim();
 }
 
 // =========================
-// GEMINI AI CORE
+// GEMINI AI CORE (FIXED + STABLE)
 // =========================
 
 async function askAI(prompt) {
@@ -228,7 +223,12 @@ async function askAI(prompt) {
 
     const chunks = getRelevantChunks(prompt);
 
-    const context = chunks.map(c => c.text).join("\n\n");
+    // 🔥 HARD LIMIT context size (THIS FIXES YOUR ISSUE)
+    const context = chunks
+      .filter(c => c.text && c.text.length > 20)
+      .slice(0, 3) // 🔥 smaller = more stable
+      .map(c => c.text.slice(0, 600)) // 🔥 strict cap
+      .join("\n\n");
 
     const sources = chunks.map(c =>
       `${c.source} | Page ${c.page}`
@@ -246,7 +246,7 @@ async function askAI(prompt) {
               text: `
 You are a strict study assistant.
 
-ONLY use the provided material.
+ONLY use the material below.
 
 If missing say:
 "Not found in study material."
@@ -270,10 +270,13 @@ ${prompt}
 
     const data = await res.json();
 
+    console.log("GEMINI DEBUG:", data);
+
     const text = extractGeminiText(data);
 
-    if (!text || text.length === 0) {
-      return "No response generated (AI returned empty output).";
+    // 🔥 FINAL SAFETY FALLBACK (NO MORE UNDEFINED)
+    if (!text || text.trim().length === 0) {
+      return "AI returned empty response. Try a shorter or clearer question.";
     }
 
     return `
@@ -286,7 +289,7 @@ ${sources}
 
   } catch (err) {
     console.error("AI ERROR:", err);
-    return "AI error (network or API issue).";
+    return "AI error (network/API issue).";
   }
 }
 
@@ -364,7 +367,7 @@ function renderFiles() {
 
 document.getElementById("examBtn").onclick = async () => {
 
-  const chunks = currentSubject.chunks.slice(0, 8);
+  const chunks = currentSubject.chunks.slice(0, 6);
 
   const context = chunks.map(c => c.text).join("\n\n");
 
@@ -376,7 +379,7 @@ ${context}
 Include:
 - multiple choice
 - short answer
-- essay question
+- essay questions
   `);
 
   document.getElementById("output").textContent = res;
