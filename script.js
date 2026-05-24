@@ -1,6 +1,5 @@
-
 // =========================
-// GEMINI CONFIG
+// STUDYFLOW AI - STABLE GEMINI VERSION
 // =========================
 
 const GEMINI_API_KEY = "AIzaSyAsYbE0FoMeMWbGIrTAr_sZbM16wKYr7xk";
@@ -12,7 +11,6 @@ const GEMINI_MODEL = "gemini-1.5-flash";
 
 let subjects = JSON.parse(localStorage.getItem("subjects")) || [];
 let currentSubject = null;
-let currentPDF = null;
 
 // =========================
 // SAVE
@@ -37,7 +35,6 @@ document.getElementById("newSubjectBtn").onclick = () => {
     files: [],
     chunks: [],
     chatHistory: [],
-    selectedFile: null,
     xp: 0,
     level: 1
   });
@@ -72,7 +69,7 @@ function renderSubjects() {
 }
 
 // =========================
-// LOAD SUBJECT (NEW AI INSTANCE)
+// LOAD SUBJECT (ISOLATED AI)
 // =========================
 
 function loadSubject(id) {
@@ -84,16 +81,17 @@ function loadSubject(id) {
 
   renderFiles();
   renderChat();
-  renderPDFList();
 }
 
 // =========================
 // FILE UPLOAD
 // =========================
 
-document.getElementById("fileInput").onchange = async (e) => {
+document.getElementById("fileInput").onchange = handleFiles;
 
-  if (!currentSubject) return;
+async function handleFiles(e) {
+
+  if (!currentSubject) return alert("Select a subject first");
 
   const files = Array.from(e.target.files);
 
@@ -101,19 +99,19 @@ document.getElementById("fileInput").onchange = async (e) => {
 
     const text = await extractText(file);
 
-    const chunks = chunkText(text, file.name);
-
     currentSubject.files.push({
       name: file.name,
       text
     });
+
+    const chunks = chunkText(text, file.name);
 
     currentSubject.chunks.push(...chunks);
   }
 
   save();
   renderFiles();
-};
+}
 
 // =========================
 // TEXT EXTRACTION
@@ -147,7 +145,7 @@ async function extractText(file) {
 }
 
 // =========================
-// CHUNKING
+// CHUNKING (WITH SOURCE + PAGE)
 // =========================
 
 function chunkText(text, fileName, size = 1200) {
@@ -175,6 +173,8 @@ function chunkText(text, fileName, size = 1200) {
 
 function getRelevantChunks(question) {
 
+  if (!currentSubject) return [];
+
   return currentSubject.chunks
     .map(c => {
 
@@ -194,22 +194,45 @@ function getRelevantChunks(question) {
 }
 
 // =========================
-// GEMINI AI (PER SUBJECT)
+// SAFE GEMINI PARSER (FIXED)
+// =========================
+
+function extractGeminiText(data) {
+
+  if (data?.promptFeedback?.blockReason) {
+    return `Blocked: ${data.promptFeedback.blockReason}`;
+  }
+
+  const parts = data?.candidates?.[0]?.content?.parts;
+
+  if (!parts || parts.length === 0) {
+    console.log("FULL GEMINI RESPONSE:", data);
+    return null;
+  }
+
+  return parts
+    .map(p => p.text || "")
+    .join("")
+    .trim();
+}
+
+// =========================
+// GEMINI AI CORE
 // =========================
 
 async function askAI(prompt) {
 
-  if (!currentSubject) return "Select a subject.";
-
-  const chunks = getRelevantChunks(prompt);
-
-  const context = chunks.map(c => c.text).join("\n\n");
-
-  const sources = chunks.map(c =>
-    `${c.source} | Page ${c.page}`
-  ).join("\n");
+  if (!currentSubject) return "Select a subject first.";
 
   try {
+
+    const chunks = getRelevantChunks(prompt);
+
+    const context = chunks.map(c => c.text).join("\n\n");
+
+    const sources = chunks.map(c =>
+      `${c.source} | Page ${c.page}`
+    ).join("\n");
 
     const res = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`,
@@ -223,7 +246,7 @@ async function askAI(prompt) {
               text: `
 You are a strict study assistant.
 
-ONLY use the context below.
+ONLY use the provided material.
 
 If missing say:
 "Not found in study material."
@@ -247,14 +270,11 @@ ${prompt}
 
     const data = await res.json();
 
-    let text = "";
+    const text = extractGeminiText(data);
 
-    if (data?.candidates?.length > 0) {
-      const c = data.candidates[0];
-      text = c?.content?.parts?.map(p => p.text).join("") || "";
+    if (!text || text.length === 0) {
+      return "No response generated (AI returned empty output).";
     }
-
-    if (!text) return "No response generated.";
 
     return `
 ${text}
@@ -265,13 +285,13 @@ ${sources}
     `;
 
   } catch (err) {
-    console.error(err);
-    return "AI error.";
+    console.error("AI ERROR:", err);
+    return "AI error (network or API issue).";
   }
 }
 
 // =========================
-// CHAT (PER SUBJECT)
+// CHAT SYSTEM
 // =========================
 
 document.getElementById("sendBtn").onclick = sendMessage;
@@ -319,7 +339,7 @@ function renderChat() {
 }
 
 // =========================
-// FILE LIST + PDF VIEWER
+// FILE LIST
 // =========================
 
 function renderFiles() {
@@ -327,49 +347,36 @@ function renderFiles() {
   const list = document.getElementById("fileList");
   list.innerHTML = "";
 
-  currentSubject.files.forEach((f, i) => {
+  if (!currentSubject) return;
+
+  currentSubject.files.forEach(f => {
 
     const li = document.createElement("li");
-
     li.textContent = f.name;
-
-    li.onclick = () => openPDF(i);
 
     list.appendChild(li);
   });
 }
 
-function openPDF(index) {
-
-  const file = currentSubject.files[index];
-
-  const viewer = document.getElementById("pdfViewer");
-
-  viewer.textContent = file.text;
-
-  currentPDF = file;
-}
-
 // =========================
-// EXAM GENERATOR (NEW FEATURE)
+// EXAM GENERATOR
 // =========================
 
 document.getElementById("examBtn").onclick = async () => {
 
-  const chunks = currentSubject.chunks.slice(0, 10);
+  const chunks = currentSubject.chunks.slice(0, 8);
 
   const context = chunks.map(c => c.text).join("\n\n");
 
   const res = await askAI(`
-Create a full exam:
-
-- Multiple choice questions
-- Short answer
-- Essay question
-
-Based ONLY on:
+Create a full exam based ONLY on this material:
 
 ${context}
+
+Include:
+- multiple choice
+- short answer
+- essay question
   `);
 
   document.getElementById("output").textContent = res;
