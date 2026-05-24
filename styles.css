@@ -1,0 +1,109 @@
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: Inter, sans-serif;
+  background: #111827;
+  color: white;
+  overflow-x: hidden;
+}
+
+.app {
+  display: flex;
+  min-height: 100vh;
+}
+
+/* Sidebar */
+
+.sidebar {
+  width: 280px;
+  background: rgba(255,255,255,0.05);
+  backdrop-filter: blur(15px);
+  padding: 20px;
+  border-right: 1px solid rgba(255,255,255,0.1);
+}
+
+.sidebar h1 {
+  margin-bottom: 20px;
+}
+
+#subjectList {
+  margin-top: 20px;
+}
+
+.subject-card {
+  padding: 12px;
+  border-radius: 12px;
+  margin-bottom: 10px;
+  background: rgba(255,255,255,0.06);
+  cursor: pointer;
+  transition: 0.3s;
+}
+
+.subject-card:hover {
+  transform: translateY(-2px);
+}
+
+.main-content {
+  flex: 1;
+  padding: 30px;
+}
+
+.upload-area {
+  border: 2px dashed rgba(255,255,255,0.2);
+  padding: 40px;
+  border-radius: 16px;
+  margin: 20px 0;
+  text-align: center;
+}
+
+.tools-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit,minmax(200px,1fr));
+  gap: 16px;
+  margin-top: 25px;
+}
+
+.tool-btn {
+  padding: 16px;
+  border-radius: 16px;
+  border: none;
+  cursor: pointer;
+  background: linear-gradient(135deg,#4f46e5,#7c3aed);
+  color: white;
+  transition: 0.3s;
+}
+
+.tool-btn:hover {
+  transform: scale(1.03);
+}
+
+.chat-panel {
+  margin-top: 30px;
+  background: rgba(255,255,255,0.04);
+  padding: 20px;
+  border-radius: 20px;
+}
+
+#chatMessages {
+  height: 300px;
+  overflow-y: auto;
+  margin-bottom: 15px;
+}
+
+.chat-bubble {
+  margin-bottom: 12px;
+  padding: 12px;
+  border-radius: 12px;
+}
+
+.user {
+  background: #4338ca;
+}
+
+.ai {
+  background: #1f2937;
+}
