@@ -2,7 +2,12 @@
 // STUDYFLOW AI — Gemini 2.5 Flash
 // =========================
 
-const GEMINI_API_KEY = "AIzaSyA9rsJ6msdJvoceOzC5YsaCDGmX2I0YpxY";
+let GEMINI_API_KEY = localStorage.getItem("gemini_api_key") || "";
+
+if (!GEMINI_API_KEY) {
+  GEMINI_API_KEY = prompt("Enter your Gemini API key:");
+  if (GEMINI_API_KEY) localStorage.setItem("gemini_api_key", GEMINI_API_KEY);
+}
 const GEMINI_MODEL = "models/gemini-2.5-flash";
 
 // =========================
