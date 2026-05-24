@@ -404,55 +404,158 @@ function getAllChunksContext() {
 }
 
 // =========================
-// GEMINI API
+// CLAUDE API (ASK AI)
 // =========================
+
 async function askAI(prompt, systemPrompt) {
-  if (!currentSubject) return "Select a subject first.";
-  if (!currentSubject.chunks.length) return "No study material uploaded yet. Add files first.";
+
+  if (!currentSubject)
+    return "Select a subject first.";
+
+  if (!currentSubject.chunks.length)
+    return "No study material uploaded yet. Add files first.";
+
   const chunks = getRelevantChunks(prompt);
-  const context = chunks.filter(c => c.text && c.text.length > 20).map(c => c.text.split(" ").slice(0, 180).join(" ")).join("\n\n");
-  const system = systemPrompt || `You are a focused study assistant. Answer ONLY from the study material provided. If the answer is not in the material, say "Not found in your study material." Be concise and helpful. Use markdown formatting: **bold** for key terms, bullet points for lists.`;
-  const fullPrompt = `${system}\n\nSUBJECT: ${currentSubject.name}\n\nSTUDY MATERIAL:\n${context}\n\nTASK: ${prompt}`;
+
+  const context = chunks
+    .filter(c => c.text && c.text.length > 20)
+    .map(c =>
+      c.text.split(" ").slice(0, 180).join(" ")
+    )
+    .join("\n\n");
+
+  const system = systemPrompt || `
+You are a focused study assistant.
+Only use the provided study material.
+If the answer is not in the material, say:
+"Not found in your study material."
+Be concise.
+`;
+
+  const fullPrompt = `
+SUBJECT: ${currentSubject.name}
+
+STUDY MATERIAL:
+${context}
+
+TASK:
+${prompt}
+`;
+
   try {
+
     const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`,
+      "https://api.anthropic.com/v1/messages",
       {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ contents: [{ parts: [{ text: fullPrompt }] }] })
+        headers: {
+          "Content-Type": "application/json",
+          "x-api-key": CLAUDE_API_KEY,
+          "anthropic-version": "2023-06-01",
+          "anthropic-dangerous-direct-browser-access": "true"
+        },
+        body: JSON.stringify({
+          model: CLAUDE_MODEL,
+          max_tokens: 500,
+          system,
+          messages: [
+            {
+              role: "user",
+              content: fullPrompt
+            }
+          ]
+        })
       }
     );
+
     const data = await res.json();
-    if (data.error) return `API error: ${data.error.message}`;
-    const text = data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
-    if (!text) return "AI returned an empty response. Try rephrasing.";
-    return text;
-  } catch (err) { console.error("AI error:", err); return "Network or API error. Check your connection."; }
+
+    console.log("Claude response:", data);
+
+    if (!res.ok) {
+      return `API Error: ${data?.error?.message || "Unknown error"}`;
+    }
+
+    return data?.content?.[0]?.text?.trim() || "No response.";
+
+  } catch (err) {
+    console.error("Claude error:", err);
+    return `Network/API error: ${err.message}`;
+  }
 }
 
-// Uses ALL chunks — for flashcard/quiz generation where full coverage matters
-async function askAIFull(prompt) {
-  if (!currentSubject) return "Select a subject first.";
-  if (!currentSubject.chunks.length) return "No study material uploaded yet. Add files first.";
+
+// =========================
+// CLAUDE API (FULL CONTEXT)
+// =========================
+
+async function askAIFull(prompt, systemPrompt) {
+
+  if (!currentSubject)
+    return "Select a subject first.";
+
+  if (!currentSubject.chunks.length)
+    return "No study material uploaded yet. Add files first.";
+
   const context = getAllChunksContext();
-  const fullPrompt = `You are a study assistant generating exam material. Use ONLY the study material below.\n\nSUBJECT: ${currentSubject.name}\n\nSTUDY MATERIAL:\n${context}\n\nTASK: ${prompt}`;
+
+  const system = systemPrompt || `
+You are a study assistant.
+Use ONLY the provided material.
+Be complete and accurate.
+`;
+
+  const fullPrompt = `
+SUBJECT: ${currentSubject.name}
+
+STUDY MATERIAL:
+${context}
+
+TASK:
+${prompt}
+`;
+
   try {
+
     const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`,
+      "https://api.anthropic.com/v1/messages",
       {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ contents: [{ parts: [{ text: fullPrompt }] }] })
+        headers: {
+          "Content-Type": "application/json",
+          "x-api-key": CLAUDE_API_KEY,
+          "anthropic-version": "2023-06-01",
+          "anthropic-dangerous-direct-browser-access": "true"
+        },
+        body: JSON.stringify({
+          model: CLAUDE_MODEL,
+          max_tokens: 1500,
+          system,
+          messages: [
+            {
+              role: "user",
+              content: fullPrompt
+            }
+          ]
+        })
       }
     );
-    const data = await res.json();
-    if (data.error) return `API error: ${data.error.message}`;
-    const text = data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
-    if (!text) return "AI returned an empty response. Try rephrasing.";
-    return text;
-  } catch (err) { console.error("AI error:", err); return "Network or API error. Check your connection."; }
-}
 
+    const data = await res.json();
+
+    console.log("Claude full response:", data);
+
+    if (!res.ok) {
+      return `API Error: ${data?.error?.message || "Unknown error"}`;
+    }
+
+    return data?.content?.[0]?.text?.trim() || "No response.";
+
+  } catch (err) {
+    console.error("Claude full error:", err);
+    return `Network/API error: ${err.message}`;
+  }
+}
 // =========================
 // MARKDOWN RENDERER
 // =========================
