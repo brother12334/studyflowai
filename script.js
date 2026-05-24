@@ -1,6 +1,6 @@
 // =========================
 // STUDYFLOW AI
-// Uses OpenRouter API (deepseek-r1 free)
+// Uses OpenRouter API
 // =========================
 
 const OR_API_KEY = "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";
@@ -16,6 +16,11 @@ let timerInterval = null;
 let timerSeconds = 25 * 60;
 let timerRunning = false;
 let musicPlaying = false;
+
+// Flashcard / quiz edit state
+let currentFlashcards = [];
+let currentQuizQuestions = [];
+let currentMode = null; // "flashcard" | "quiz"
 
 // =========================
 // SAVE
@@ -87,6 +92,7 @@ function loadSubject(id) {
   renderFiles();
   renderChat();
   renderSubjects();
+  hideEditPanel();
 }
 
 // =========================
@@ -239,9 +245,7 @@ async function askAI(prompt, systemPrompt) {
 // =========================
 
 function renderMarkdown(text) {
-  // Remove <think>...</think> blocks (DeepSeek reasoning traces)
   text = text.replace(/<think>[\s\S]*?<\/think>/gi, "").trim();
-
   return text
     .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
     .replace(/\*(.+?)\*/g, "<em>$1</em>")
@@ -257,22 +261,126 @@ function renderMarkdown(text) {
 
 function setOutput(html, isHTML = false) {
   const out = document.getElementById("output");
-  if (isHTML) {
-    out.innerHTML = html;
-  } else {
-    out.innerHTML = `<p>${renderMarkdown(html)}</p>`;
-  }
+  out.innerHTML = isHTML ? html : `<p>${renderMarkdown(html)}</p>`;
 }
 
 // =========================
-// FLASHCARD RENDERER
+// EDIT PANEL (post-generation AI chat)
 // =========================
 
-function renderFlashcards(text) {
-  // Strip thinking blocks
-  text = text.replace(/<think>[\s\S]*?<\/think>/gi, "").trim();
+function showEditPanel(mode) {
+  currentMode = mode;
+  const panel = document.getElementById("editPanel");
+  const title = document.getElementById("editPanelTitle");
+  title.textContent = mode === "flashcard"
+    ? "✏️ Edit Flashcards — Ask AI to tweak your cards"
+    : "✏️ Edit Quiz — Ask AI to modify your questions";
+  panel.style.display = "block";
+  document.getElementById("editMessages").innerHTML = "";
+  document.getElementById("editInput").value = "";
+  document.getElementById("editInput").placeholder =
+    mode === "flashcard"
+      ? 'e.g. "Add 5 more cards about chapter 3" or "Make the questions harder"'
+      : 'e.g. "Add 3 more questions" or "Change Q2 to be about photosynthesis"';
+  panel.scrollIntoView({ behavior: "smooth", block: "start" });
+}
 
-  // Parse Q:/A: pairs
+function hideEditPanel() {
+  document.getElementById("editPanel").style.display = "none";
+  currentMode = null;
+}
+
+document.getElementById("editSendBtn").onclick = sendEditMessage;
+document.getElementById("editInput").addEventListener("keydown", (e) => {
+  if (e.key === "Enter") sendEditMessage();
+});
+document.getElementById("editCloseBtn").onclick = hideEditPanel;
+
+async function sendEditMessage() {
+  const input = document.getElementById("editInput");
+  const msg = input.value.trim();
+  if (!msg) return;
+
+  addEditMessage(msg, "user");
+  input.value = "";
+
+  const typingDiv = addEditMessage("⏳ Thinking...", "ai");
+
+  let currentData, formatPrompt, renderer;
+
+  if (currentMode === "flashcard") {
+    currentData = currentFlashcards.map((c, i) => `Q${i+1}: ${c.q}\nA${i+1}: ${c.a}`).join("\n\n");
+    formatPrompt = `Current flashcards:\n${currentData}\n\nUser request: ${msg}\n\nRespond ONLY with the updated full set of flashcards in this EXACT format (no extra text):\nQ: [question]\nA: [answer]`;
+    renderer = (text) => {
+      const pairs = parseFlashcards(text);
+      if (pairs.length > 0) {
+        currentFlashcards = pairs;
+        renderFlashcardUI(pairs);
+        typingDiv.innerHTML = `✅ Done! Updated to ${pairs.length} cards.`;
+      } else {
+        typingDiv.innerHTML = renderMarkdown(text);
+      }
+    };
+  } else {
+    currentData = currentQuizQuestions.map((q, i) =>
+      `${i+1}. ${q.q}\n${q.options.map((o,oi) => `${o.letter}. ${o.text}${oi===q.correct?" (correct)":""}`).join("\n")}`
+    ).join("\n\n");
+    formatPrompt = `Current quiz questions:\n${currentData}\n\nUser request: ${msg}\n\nRespond ONLY with the updated full set of questions in this EXACT format (no extra text):\n1. [Question]\nA. [option]\nB. [option]\nC. [option] (correct)\nD. [option]`;
+    renderer = (text) => {
+      const qs = parseQuiz(text);
+      if (qs.length > 0) {
+        currentQuizQuestions = qs;
+        renderQuizUI(qs);
+        typingDiv.innerHTML = `✅ Done! Updated to ${qs.length} questions.`;
+      } else {
+        typingDiv.innerHTML = renderMarkdown(text);
+      }
+    };
+  }
+
+  const system = "You are a study assistant helping edit flashcards or quiz questions. Follow the exact format requested. Output ONLY the cards/questions, no preamble or explanation.";
+
+  try {
+    const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${OR_API_KEY}`
+      },
+      body: JSON.stringify({
+        model: OR_MODEL,
+        messages: [
+          { role: "system", content: system },
+          { role: "user", content: formatPrompt }
+        ]
+      })
+    });
+    const data = await res.json();
+    let text = data?.choices?.[0]?.message?.content?.trim() || "No response.";
+    text = text.replace(/<think>[\s\S]*?<\/think>/gi, "").trim();
+    renderer(text);
+  } catch (err) {
+    typingDiv.innerHTML = "❌ Error contacting AI. Try again.";
+  }
+}
+
+function addEditMessage(text, type) {
+  const div = document.createElement("div");
+  div.className = `chat-bubble ${type}`;
+  div.innerHTML = type === "ai" ? renderMarkdown(text) : "";
+  if (type === "user") div.textContent = text;
+  const box = document.getElementById("editMessages");
+  box.appendChild(div);
+  box.scrollTop = box.scrollHeight;
+  return div;
+}
+
+// =========================
+// FLASHCARD PARSER
+// =========================
+
+function parseFlashcards(text) {
+  text = text.replace(/<think>[\s\S]*?<\/think>/gi, "").trim();
   const pairs = [];
   const lines = text.split("\n");
   let currentQ = "", currentA = "";
@@ -290,48 +398,110 @@ function renderFlashcards(text) {
     }
   }
   if (currentQ && currentA) pairs.push({ q: currentQ, a: currentA });
-
-  if (pairs.length === 0) {
-    setOutput(text);
-    return;
-  }
-
-  let html = `<div class="flashcard-grid">`;
-  pairs.forEach((pair, i) => {
-    html += `
-      <div class="flashcard" onclick="this.classList.toggle('flipped')">
-        <div class="flashcard-inner">
-          <div class="flashcard-front">
-            <span class="card-label">Q ${i + 1}</span>
-            <p>${pair.q}</p>
-            <span class="flip-hint">tap to reveal</span>
-          </div>
-          <div class="flashcard-back">
-            <span class="card-label">Answer</span>
-            <p>${pair.a}</p>
-          </div>
-        </div>
-      </div>`;
-  });
-  html += `</div>`;
-  setOutput(html, true);
+  return pairs;
 }
 
 // =========================
-// QUIZ RENDERER
+// FLASHCARD UI (Quizlet-style)
 // =========================
 
-function renderQuiz(text) {
-  text = text.replace(/<think>[\s\S]*?<\/think>/gi, "").trim();
+function renderFlashcards(text) {
+  const pairs = parseFlashcards(text);
+  if (pairs.length === 0) { setOutput(text); return; }
+  currentFlashcards = pairs;
+  renderFlashcardUI(pairs);
+  showEditPanel("flashcard");
+}
 
-  // Parse questions with options
+function renderFlashcardUI(pairs) {
+  let idx = 0;
+  let flipped = false;
+
+  function cardHTML(i) {
+    const p = pairs[i];
+    return `
+      <div class="fc-wrap">
+        <div class="fc-progress-bar">
+          <div class="fc-progress-fill" style="width:${((i+1)/pairs.length)*100}%"></div>
+        </div>
+        <p class="fc-counter">${i+1} / ${pairs.length}</p>
+        <div class="fc-card" id="fcCard" onclick="toggleFlip()">
+          <div class="fc-inner" id="fcInner">
+            <div class="fc-front">
+              <span class="fc-side-label">Question</span>
+              <p class="fc-text">${p.q}</p>
+              <span class="fc-hint">Click to flip</span>
+            </div>
+            <div class="fc-back">
+              <span class="fc-side-label">Answer</span>
+              <p class="fc-text">${p.a}</p>
+            </div>
+          </div>
+        </div>
+        <div class="fc-nav">
+          <button class="fc-nav-btn" onclick="fcPrev()" ${i===0?"disabled":""}>← Prev</button>
+          <div class="fc-dot-row">${pairs.map((_,di)=>`<span class="fc-dot${di===i?" fc-dot-active":""}"></span>`).join("")}</div>
+          <button class="fc-nav-btn" onclick="fcNext()" ${i===pairs.length-1?"disabled":""}>Next →</button>
+        </div>
+        <div class="fc-actions">
+          <button class="fc-action-btn" onclick="fcShuffle()">🔀 Shuffle</button>
+          <button class="fc-action-btn" onclick="fcRestart()">↺ Restart</button>
+        </div>
+      </div>`;
+  }
+
+  setOutput(cardHTML(idx), true);
+  setupFCKeyboard();
+
+  window.toggleFlip = function() {
+    flipped = !flipped;
+    const inner = document.getElementById("fcInner");
+    if (inner) inner.classList.toggle("flipped", flipped);
+  };
+
+  window.fcNext = function() {
+    if (idx < pairs.length - 1) { idx++; flipped = false; setOutput(cardHTML(idx), true); setupFCKeyboard(); }
+  };
+
+  window.fcPrev = function() {
+    if (idx > 0) { idx--; flipped = false; setOutput(cardHTML(idx), true); setupFCKeyboard(); }
+  };
+
+  window.fcShuffle = function() {
+    for (let i = pairs.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [pairs[i], pairs[j]] = [pairs[j], pairs[i]];
+    }
+    idx = 0; flipped = false;
+    setOutput(cardHTML(idx), true); setupFCKeyboard();
+  };
+
+  window.fcRestart = function() {
+    idx = 0; flipped = false;
+    setOutput(cardHTML(idx), true); setupFCKeyboard();
+  };
+}
+
+function setupFCKeyboard() {
+  document.onkeydown = (e) => {
+    if (e.key === "ArrowRight") window.fcNext?.();
+    else if (e.key === "ArrowLeft") window.fcPrev?.();
+    else if (e.key === " ") { e.preventDefault(); window.toggleFlip?.(); }
+  };
+}
+
+// =========================
+// QUIZ PARSER
+// =========================
+
+function parseQuiz(text) {
+  text = text.replace(/<think>[\s\S]*?<\/think>/gi, "").trim();
   const questions = [];
   const blocks = text.split(/\n(?=\d+[\.\)])/);
 
   for (let block of blocks) {
     block = block.trim();
     if (!block) continue;
-
     const lines = block.split("\n").map(l => l.trim()).filter(Boolean);
     if (lines.length < 3) continue;
 
@@ -345,7 +515,10 @@ function renderQuiz(text) {
       if (match) {
         const isCorrect = line.includes("✓") || line.toLowerCase().includes("(correct)") ||
           line.includes("*") || line.match(/\[correct\]/i);
-        options.push({ letter: match[1].toUpperCase(), text: match[2].replace(/[✓*]|\(correct\)|\[correct\]/gi, "").trim() });
+        options.push({
+          letter: match[1].toUpperCase(),
+          text: match[2].replace(/[✓*]|\(correct\)|\[correct\]/gi, "").trim()
+        });
         if (isCorrect) correct = options.length - 1;
       } else if (line.toLowerCase().includes("answer:") || line.toLowerCase().includes("correct:")) {
         const ans = line.match(/[A-D]/i);
@@ -353,17 +526,26 @@ function renderQuiz(text) {
       }
     }
 
-    if (options.length >= 2) {
-      questions.push({ q: qText, options, correct });
-    }
+    if (options.length >= 2) questions.push({ q: qText, options, correct });
   }
+  return questions;
+}
 
-  if (questions.length === 0) {
-    setOutput(text);
-    return;
-  }
+// =========================
+// QUIZ UI (interactive)
+// =========================
 
+function renderQuiz(text) {
+  const questions = parseQuiz(text);
+  if (questions.length === 0) { setOutput(text); return; }
+  currentQuizQuestions = questions;
+  renderQuizUI(questions);
+  showEditPanel("quiz");
+}
+
+function renderQuizUI(questions) {
   let html = `<div class="quiz-container" id="quizContainer">`;
+
   questions.forEach((q, qi) => {
     html += `
       <div class="quiz-question" id="qq-${qi}">
@@ -381,13 +563,12 @@ function renderQuiz(text) {
     <div class="quiz-score" id="quizScore" style="display:none">
       <h3>Results</h3>
       <p id="scoreText"></p>
-      <button onclick="resetQuiz()" class="tool-btn" style="margin-top:12px">Try Again</button>
+      <div class="quiz-score-bar-wrap"><div class="quiz-score-bar" id="quizScoreBar"></div></div>
+      <button onclick="resetQuiz()" class="tool-btn" style="margin-top:14px">↺ Try Again</button>
     </div>
   </div>`;
 
   setOutput(html, true);
-
-  // Store answers for scoring
   window._quizData = { questions, answered: 0, correct: 0, total: questions.length };
 }
 
@@ -423,14 +604,17 @@ window.answerQ = function(qi, oi, correct) {
     const scoreEl = document.getElementById("quizScore");
     const pct = Math.round((qd.correct / qd.total) * 100);
     document.getElementById("scoreText").textContent =
-      `You got ${qd.correct} / ${qd.total} correct (${pct}%) ${pct >= 70 ? "🎉" : "📖 Keep studying!"}`;
+      `You got ${qd.correct} / ${qd.total} correct (${pct}%) ${pct >= 70 ? "🎉 Great job!" : "📖 Keep studying!"}`;
+    const bar = document.getElementById("quizScoreBar");
+    if (bar) { bar.style.width = pct + "%"; bar.style.background = pct >= 70 ? "#4ade80" : "#f87171"; }
     scoreEl.style.display = "block";
+    scoreEl.scrollIntoView({ behavior: "smooth", block: "nearest" });
     awardXP(qd.correct * 5);
   }
 };
 
 window.resetQuiz = function() {
-  document.getElementById("quizBtn").click();
+  renderQuizUI(currentQuizQuestions);
 };
 
 // =========================
@@ -445,6 +629,7 @@ async function runTool(prompt, btnId, renderer) {
   btn.disabled = true;
   btn.classList.add("loading");
   document.getElementById("output").innerHTML = `<p style="opacity:0.5">⏳ Thinking...</p>`;
+  hideEditPanel();
 
   const result = await askAI(prompt);
 
@@ -534,7 +719,6 @@ async function sendMessage() {
   const typingDiv = addMessage("...", "ai");
   const reply = await askAI(msg);
 
-  // Strip thinking blocks from chat too
   const clean = reply.replace(/<think>[\s\S]*?<\/think>/gi, "").trim();
   typingDiv.innerHTML = renderMarkdown(clean);
 
