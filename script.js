@@ -1,7 +1,10 @@
 // =========================
 // STUDYFLOW AI — FIXED
-// Uses Anthropic API (claude-sonnet-4-20250514)
+// Uses Google Gemini API (gemini-1.5-flash)
 // =========================
+
+const GEMINI_API_KEY = "AIzaSyA7LvR94nryDzmZyyhU28AFcYepCLj9lGY";
+const GEMINI_MODEL = "gemini-1.5-flash";
 
 // =========================
 // STATE
@@ -46,7 +49,7 @@ document.getElementById("newSubjectBtn").onclick = () => {
 };
 
 // =========================
-// SEARCH — FIX #5: actually filters
+// SEARCH — filters subject list
 // =========================
 
 document.getElementById("searchInput").addEventListener("input", (e) => {
@@ -87,11 +90,11 @@ function loadSubject(id) {
   document.getElementById("level").innerText = currentSubject.level || 1;
   renderFiles();
   renderChat();
-  renderSubjects(); // re-render to show active state
+  renderSubjects();
 }
 
 // =========================
-// FILE UPLOAD — FIX #4: drag-and-drop wired
+// FILE UPLOAD — drag-and-drop + click
 // =========================
 
 const dropZone = document.getElementById("dropZone");
@@ -118,20 +121,20 @@ document.getElementById("fileInput").onchange = (e) => {
 };
 
 async function handleFileList(files) {
-  setOutput("📂 Reading files...");
+  setOutput("Reading files...");
   for (let file of files) {
     const text = await extractText(file);
-    if (!text) { continue; }
+    if (!text) continue;
     currentSubject.files.push({ name: file.name, text });
     currentSubject.chunks.push(...chunkText(text, file.name));
   }
   save();
   renderFiles();
-  setOutput(`✅ ${files.length} file(s) loaded. Ready to study!`);
+  setOutput(`${files.length} file(s) loaded. Ready to study!`);
 }
 
 // =========================
-// TEXT EXTRACTION — FIX #8: DOCX via mammoth
+// TEXT EXTRACTION — PDF, DOCX, TXT
 // =========================
 
 async function extractText(file) {
@@ -156,7 +159,6 @@ async function extractText(file) {
     }
   }
 
-  // FIX #8: DOCX extraction was imported but never called — now it is
   if (
     file.name.endsWith(".docx") ||
     file.type === "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
@@ -207,7 +209,7 @@ function getRelevantChunks(question) {
 }
 
 // =========================
-// ANTHROPIC API — FIX #7: switched from Gemini to Anthropic
+// GEMINI API
 // =========================
 
 async function askAI(prompt) {
@@ -223,28 +225,40 @@ async function askAI(prompt) {
   const sources = chunks.map(c => `${c.source} | Chunk ${c.page}`).join("\n");
 
   try {
-    const res = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model: "claude-sonnet-4-20250514",
-        max_tokens: 1000,
-        system: `You are a focused study assistant. Answer ONLY from the provided study material context. If the answer isn't in the material, say "Not found in your study material." Be concise and helpful.`,
-        messages: [{
-          role: "user",
-          content: `SUBJECT: ${currentSubject.name}\n\nSTUDY MATERIAL:\n${context}\n\nQUESTION: ${prompt}`
-        }]
-      })
-    });
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contents: [{
+            role: "user",
+            parts: [{
+              text: `You are a focused study assistant. Answer ONLY from the study material below. If the answer is not in the material, say "Not found in your study material." Be concise and helpful.
+
+SUBJECT: ${currentSubject.name}
+
+STUDY MATERIAL:
+${context}
+
+QUESTION: ${prompt}`
+            }]
+          }]
+        })
+      }
+    );
 
     const data = await res.json();
 
+    if (data?.promptFeedback?.blockReason)
+      return `Blocked by API: ${data.promptFeedback.blockReason}`;
+
     if (data.error) return `API error: ${data.error.message}`;
 
-    const text = data?.content?.[0]?.text?.trim();
+    const text = data?.candidates?.[0]?.content?.parts?.map(p => p.text || "").join("").trim();
     if (!text) return "AI returned an empty response. Try rephrasing.";
 
-    return `${text}\n\n---\n📚 Sources:\n${sources}`;
+    return `${text}\n\n---\nSources:\n${sources}`;
 
   } catch (err) {
     console.error("AI error:", err);
@@ -253,7 +267,7 @@ async function askAI(prompt) {
 }
 
 // =========================
-// TOOL BUTTONS — FIX #2: all wired up
+// TOOL BUTTONS
 // =========================
 
 function setOutput(text) {
@@ -267,7 +281,7 @@ async function runTool(prompt, btnId) {
   const btn = document.getElementById(btnId);
   btn.disabled = true;
   btn.classList.add("loading");
-  setOutput("⏳ Thinking...");
+  setOutput("Thinking...");
 
   const result = await askAI(prompt);
   setOutput(result);
@@ -287,23 +301,22 @@ document.getElementById("quizBtn").onclick = () =>
   runTool("Generate 5 multiple choice quiz questions from this study material. Include 4 answer options (A-D) and mark the correct answer.", "quizBtn");
 
 document.getElementById("studyPlanBtn").onclick = () =>
-  runTool("Create a structured study plan for mastering this material. Break it into daily sessions with specific topics to cover.", "studyPlanBtn");
+  runTool("Create a structured study plan for mastering this material. Break it into daily sessions with specific topics.", "studyPlanBtn");
 
 document.getElementById("eli5Btn").onclick = () =>
-  runTool("Explain the main concepts from this study material like I'm 5 years old. Use simple words and fun analogies.", "eli5Btn");
+  runTool("Explain the main concepts from this study material like I am 5 years old. Use simple words and fun analogies.", "eli5Btn");
 
 document.getElementById("mnemonicBtn").onclick = () =>
   runTool("Create memory tricks, mnemonics, and acronyms to help remember the key concepts in this study material.", "mnemonicBtn");
 
-// FIX #1: was examBtn (which didn't exist in HTML), now correctly practiceTestBtn
 document.getElementById("practiceTestBtn").onclick = () =>
   runTool("Create a full practice test with: 5 multiple choice questions, 3 short answer questions, and 1 essay question. Base it entirely on the study material.", "practiceTestBtn");
 
 document.getElementById("weaknessBtn").onclick = () =>
-  runTool("Analyze this study material and identify the 3-5 most complex or tricky concepts that students commonly struggle with. Explain why each is difficult and give tips for mastering them.", "weaknessBtn");
+  runTool("Identify the 3-5 most complex or tricky concepts in this material that students commonly struggle with. Explain why each is difficult and give tips for mastering them.", "weaknessBtn");
 
 // =========================
-// CHAT — FIX #3: sendBtn now works
+// CHAT
 // =========================
 
 document.getElementById("sendBtn").onclick = sendMessage;
@@ -321,9 +334,7 @@ async function sendMessage() {
   input.value = "";
 
   const typingDiv = addMessage("...", "ai");
-
   const reply = await askAI(msg);
-
   typingDiv.textContent = reply;
 
   currentSubject.chatHistory.push({ role: "user", content: msg });
@@ -391,7 +402,7 @@ function awardXP(amount) {
 }
 
 // =========================
-// THEME TOGGLE — FIX #3
+// THEME TOGGLE
 // =========================
 
 document.getElementById("themeToggle").onclick = () => {
@@ -402,7 +413,7 @@ document.getElementById("themeToggle").onclick = () => {
 };
 
 // =========================
-// MUSIC TOGGLE — FIX #3
+// MUSIC TOGGLE
 // =========================
 
 const music = document.getElementById("studyMusic");
@@ -419,7 +430,7 @@ document.getElementById("musicToggle").onclick = () => {
 };
 
 // =========================
-// POMODORO TIMER — FIX #6: full countdown logic
+// POMODORO TIMER
 // =========================
 
 function formatTime(seconds) {
@@ -441,10 +452,10 @@ document.getElementById("startTimer").onclick = () => {
     if (timerSeconds <= 0) {
       clearInterval(timerInterval);
       timerRunning = false;
-      timerSeconds = 5 * 60; // switch to 5-min break
+      timerSeconds = 5 * 60;
       updateTimerDisplay();
       confetti({ particleCount: 80, spread: 60 });
-      alert("⏰ Pomodoro done! Take a 5-minute break.");
+      alert("Pomodoro done! Take a 5-minute break.");
     }
   }, 1000);
 };
