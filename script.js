@@ -1,10 +1,6 @@
 
 // =========================
-// STUDYFLOW AI - ADVANCED RAG VERSION
-// =========================
-
-// =========================
-// CONFIG
+// GEMINI CONFIG
 // =========================
 
 const GEMINI_API_KEY = "AIzaSyAsYbE0FoMeMWbGIrTAr_sZbM16wKYr7xk";
@@ -14,86 +10,44 @@ const GEMINI_MODEL = "gemini-1.5-flash";
 // STATE
 // =========================
 
-let subjects =
-  JSON.parse(localStorage.getItem("subjects")) || [];
-
+let subjects = JSON.parse(localStorage.getItem("subjects")) || [];
 let currentSubject = null;
+let currentPDF = null;
 
 // =========================
 // SAVE
 // =========================
 
-function saveSubjects() {
+function save() {
   localStorage.setItem("subjects", JSON.stringify(subjects));
 }
 
 // =========================
-// CHUNKING (with page tracking)
+// SUBJECT CREATION
 // =========================
 
-function chunkText(text, fileName, chunkSize = 1200) {
+document.getElementById("newSubjectBtn").onclick = () => {
 
-  const chunks = [];
-  let page = 1;
+  const name = prompt("Subject name?");
+  if (!name) return;
 
-  for (let i = 0; i < text.length; i += chunkSize) {
-
-    const chunkText = text.slice(i, i + chunkSize);
-
-    chunks.push({
-      text: chunkText,
-      source: fileName,
-      page: page
-    });
-
-    page++;
-  }
-
-  return chunks;
-}
-
-// =========================
-// SEMANTIC SCORING (HYBRID)
-// =========================
-
-function scoreChunk(chunk, question) {
-
-  const qWords = question.toLowerCase().split(" ");
-  const text = chunk.text.toLowerCase();
-
-  let score = 0;
-
-  // keyword match
-  qWords.forEach(word => {
-    if (text.includes(word)) score += 2;
+  subjects.push({
+    id: Date.now(),
+    name,
+    files: [],
+    chunks: [],
+    chatHistory: [],
+    selectedFile: null,
+    xp: 0,
+    level: 1
   });
 
-  // density boost (semantic approximation)
-  const overlapRatio =
-    qWords.filter(w => text.includes(w)).length / qWords.length;
-
-  score += overlapRatio * 5;
-
-  return score;
-}
+  save();
+  renderSubjects();
+};
 
 // =========================
-// RETRIEVE RELEVANT CHUNKS
-// =========================
-
-function getRelevantChunks(question, chunks, limit = 6) {
-
-  return chunks
-    .map(c => ({
-      ...c,
-      score: scoreChunk(c, question)
-    }))
-    .sort((a, b) => b.score - a.score)
-    .slice(0, limit);
-}
-
-// =========================
-// SUBJECTS
+// RENDER SUBJECTS
 // =========================
 
 function renderSubjects() {
@@ -101,46 +55,24 @@ function renderSubjects() {
   const list = document.getElementById("subjectList");
   list.innerHTML = "";
 
-  subjects.forEach(subject => {
+  subjects.forEach(sub => {
 
-    const card = document.createElement("div");
-    card.className = "subject-card";
+    const div = document.createElement("div");
+    div.className = "subject-card";
 
-    card.innerHTML = `
-      <h3>${subject.name}</h3>
-      <p>${subject.files.length} files</p>
-      <p>XP: ${subject.xp}</p>
+    div.innerHTML = `
+      <h3>${sub.name}</h3>
+      <p>${sub.files.length} files</p>
     `;
 
-    card.onclick = () => loadSubject(subject.id);
+    div.onclick = () => loadSubject(sub.id);
 
-    list.appendChild(card);
+    list.appendChild(div);
   });
 }
 
-document.getElementById("newSubjectBtn").onclick = () => {
-
-  const name = prompt("Enter subject name:");
-  if (!name) return;
-
-  subjects.push({
-    id: Date.now(),
-    name,
-    files: [],
-    extractedText: "",
-    chunks: [], // IMPORTANT
-    chatHistory: [],
-    xp: 0,
-    level: 1,
-    streak: 0
-  });
-
-  saveSubjects();
-  renderSubjects();
-};
-
 // =========================
-// LOAD SUBJECT
+// LOAD SUBJECT (NEW AI INSTANCE)
 // =========================
 
 function loadSubject(id) {
@@ -150,29 +82,18 @@ function loadSubject(id) {
   document.getElementById("subjectTitle").innerText =
     currentSubject.name;
 
-  document.getElementById("xp").innerText =
-    currentSubject.xp;
-
-  document.getElementById("level").innerText =
-    currentSubject.level;
-
-  document.getElementById("streak").innerText =
-    currentSubject.streak;
-
   renderFiles();
   renderChat();
+  renderPDFList();
 }
 
 // =========================
 // FILE UPLOAD
 // =========================
 
-document.getElementById("fileInput").onchange = handleFiles;
+document.getElementById("fileInput").onchange = async (e) => {
 
-async function handleFiles(e) {
-
-  if (!currentSubject)
-    return alert("Select a subject first");
+  if (!currentSubject) return;
 
   const files = Array.from(e.target.files);
 
@@ -180,22 +101,19 @@ async function handleFiles(e) {
 
     const text = await extractText(file);
 
+    const chunks = chunkText(text, file.name);
+
     currentSubject.files.push({
       name: file.name,
       text
     });
 
-    currentSubject.extractedText += "\n\n" + text;
-
-    // 🧠 NEW: structured chunking with page tracking
-    const newChunks = chunkText(text, file.name);
-
-    currentSubject.chunks.push(...newChunks);
+    currentSubject.chunks.push(...chunks);
   }
 
-  saveSubjects();
+  save();
   renderFiles();
-}
+};
 
 // =========================
 // TEXT EXTRACTION
@@ -219,68 +137,79 @@ async function extractText(file) {
       const page = await pdf.getPage(i);
       const content = await page.getTextContent();
 
-      text += content.items.map(i => i.str).join(" ");
+      text += "\n" + content.items.map(i => i.str).join(" ");
     }
 
     return text;
-  }
-
-  if (file.name.endsWith(".docx")) {
-
-    const buffer = await file.arrayBuffer();
-    const result =
-      await mammoth.extractRawText({ arrayBuffer: buffer });
-
-    return result.value;
-  }
-
-  if (file.type.startsWith("image/")) {
-
-    const result = await Tesseract.recognize(file);
-    return result.data.text;
   }
 
   return "";
 }
 
 // =========================
-// AI CORE (WITH SOURCES + PAGE TRACKING)
+// CHUNKING
 // =========================
 
-async function askAI(prompt, mode = "normal") {
+function chunkText(text, fileName, size = 1200) {
 
-  if (!currentSubject)
-    return "Select a subject first.";
+  const chunks = [];
+  let page = 1;
+
+  for (let i = 0; i < text.length; i += size) {
+
+    chunks.push({
+      text: text.slice(i, i + size),
+      source: fileName,
+      page
+    });
+
+    page++;
+  }
+
+  return chunks;
+}
+
+// =========================
+// SMART RETRIEVAL
+// =========================
+
+function getRelevantChunks(question) {
+
+  return currentSubject.chunks
+    .map(c => {
+
+      let score = 0;
+
+      const words = question.toLowerCase().split(" ");
+      const text = c.text.toLowerCase();
+
+      words.forEach(w => {
+        if (text.includes(w)) score += 2;
+      });
+
+      return { ...c, score };
+    })
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 6);
+}
+
+// =========================
+// GEMINI AI (PER SUBJECT)
+// =========================
+
+async function askAI(prompt) {
+
+  if (!currentSubject) return "Select a subject.";
+
+  const chunks = getRelevantChunks(prompt);
+
+  const context = chunks.map(c => c.text).join("\n\n");
+
+  const sources = chunks.map(c =>
+    `${c.source} | Page ${c.page}`
+  ).join("\n");
 
   try {
-
-    const chunks = getRelevantChunks(
-      prompt,
-      currentSubject.chunks
-    );
-
-    const context = chunks.map(c => c.text).join("\n\n");
-
-    const sourceMap = chunks.map(c =>
-      `Source: ${c.source} | Page: ${c.page}`
-    ).join("\n");
-
-    const systemMode =
-      mode === "exam"
-        ? `
-YOU ARE IN EXAM PREDICTION MODE.
-
-Based on the material:
-- Predict likely exam questions
-- Identify key test topics
-- Highlight what teachers focus on most
-- Give a practice exam at the end
-        `
-        : `
-You are a strict study assistant.
-Only use the provided material.
-If missing, say: "Not found in study guides."
-        `;
 
     const res = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`,
@@ -292,16 +221,20 @@ If missing, say: "Not found in study guides."
             role: "user",
             parts: [{
               text: `
-${systemMode}
+You are a strict study assistant.
+
+ONLY use the context below.
+
+If missing say:
+"Not found in study material."
+
+---
 
 SUBJECT:
 ${currentSubject.name}
 
-RELEVANT CONTEXT:
+CONTEXT:
 ${context}
-
-SOURCE MAP:
-${sourceMap}
 
 QUESTION:
 ${prompt}
@@ -314,19 +247,21 @@ ${prompt}
 
     const data = await res.json();
 
-    const text =
-      data?.candidates?.[0]?.content?.parts?.[0]?.text;
+    let text = "";
 
-    // =========================
-    // RETURN WITH SOURCE HIGHLIGHTING
-    // =========================
+    if (data?.candidates?.length > 0) {
+      const c = data.candidates[0];
+      text = c?.content?.parts?.map(p => p.text).join("") || "";
+    }
+
+    if (!text) return "No response generated.";
 
     return `
 ${text}
 
-------------------------
-📚 SOURCES USED:
-${sourceMap}
+-------------------
+📚 SOURCES:
+${sources}
     `;
 
   } catch (err) {
@@ -336,7 +271,7 @@ ${sourceMap}
 }
 
 // =========================
-// CHAT
+// CHAT (PER SUBJECT)
 // =========================
 
 document.getElementById("sendBtn").onclick = sendMessage;
@@ -346,9 +281,10 @@ async function sendMessage() {
   const input = document.getElementById("chatInput");
   const msg = input.value.trim();
 
-  if (!msg) return;
+  if (!msg || !currentSubject) return;
 
   addMessage(msg, "user");
+
   input.value = "";
 
   const reply = await askAI(msg);
@@ -358,7 +294,7 @@ async function sendMessage() {
   currentSubject.chatHistory.push({ role: "user", content: msg });
   currentSubject.chatHistory.push({ role: "ai", content: reply });
 
-  saveSubjects();
+  save();
 }
 
 function addMessage(text, type) {
@@ -383,85 +319,61 @@ function renderChat() {
 }
 
 // =========================
-// TOOLS
+// FILE LIST + PDF VIEWER
 // =========================
 
-function runTool(prompt, mode = "normal") {
+function renderFiles() {
 
-  askAI(prompt, mode)
-    .then(res => {
-      document.getElementById("output").textContent = res;
-    });
+  const list = document.getElementById("fileList");
+  list.innerHTML = "";
+
+  currentSubject.files.forEach((f, i) => {
+
+    const li = document.createElement("li");
+
+    li.textContent = f.name;
+
+    li.onclick = () => openPDF(i);
+
+    list.appendChild(li);
+  });
 }
 
-// normal tools
-document.getElementById("summarizeBtn").onclick = () =>
-  runTool("Summarize notes");
+function openPDF(index) {
 
-document.getElementById("flashcardBtn").onclick = () =>
-  runTool("Generate flashcards");
+  const file = currentSubject.files[index];
 
-document.getElementById("quizBtn").onclick = () => {
-  runTool("Create quiz");
-  confetti();
+  const viewer = document.getElementById("pdfViewer");
+
+  viewer.textContent = file.text;
+
+  currentPDF = file;
+}
+
+// =========================
+// EXAM GENERATOR (NEW FEATURE)
+// =========================
+
+document.getElementById("examBtn").onclick = async () => {
+
+  const chunks = currentSubject.chunks.slice(0, 10);
+
+  const context = chunks.map(c => c.text).join("\n\n");
+
+  const res = await askAI(`
+Create a full exam:
+
+- Multiple choice questions
+- Short answer
+- Essay question
+
+Based ONLY on:
+
+${context}
+  `);
+
+  document.getElementById("output").textContent = res;
 };
-
-document.getElementById("eli5Btn").onclick = () =>
-  runTool("Explain like I'm 5");
-
-document.getElementById("mnemonicBtn").onclick = () =>
-  runTool("Create mnemonics");
-
-document.getElementById("practiceTestBtn").onclick = () =>
-  runTool("Create practice test");
-
-document.getElementById("weaknessBtn").onclick = () =>
-  runTool("Find weak topics");
-
-// 🎯 EXAM PREDICTION MODE
-document.getElementById("studyPlanBtn").onclick = () => {
-  runTool("Predict exam questions and create study plan", "exam");
-};
-
-// =========================
-// SEARCH
-// =========================
-
-document.getElementById("searchInput").oninput = (e) => {
-
-  const val = e.target.value.toLowerCase();
-
-  document.querySelectorAll(".subject-card").forEach(c => {
-    c.style.display =
-      c.innerText.toLowerCase().includes(val)
-        ? "block"
-        : "none";
-  });
-};
-
-// =========================
-// DRAG & DROP
-// =========================
-
-const dropZone = document.getElementById("dropZone");
-
-dropZone.addEventListener("dragover", e => {
-  e.preventDefault();
-  dropZone.classList.add("dragging");
-});
-
-dropZone.addEventListener("dragleave", () => {
-  dropZone.classList.remove("dragging");
-});
-
-dropZone.addEventListener("drop", e => {
-  e.preventDefault();
-  dropZone.classList.remove("dragging");
-
-  handleFiles({
-    target: { files: e.dataTransfer.files }
-  });
-});
 
 // =========================
 // INIT
