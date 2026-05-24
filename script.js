@@ -3,19 +3,17 @@
 // =========================
 
 const GEMINI_API_KEY = "AIzaSyA9rsJ6msdJvoceOzC5YsaCDGmX2I0YpxY";
-
 const GEMINI_MODEL = "models/gemini-2.5-flash";
-
 
 // =========================
 // STATE
 // =========================
-let subjects         = JSON.parse(localStorage.getItem("subjects")) || [];
-let currentSubject   = null;
-let timerInterval    = null;
-let timerSeconds     = 25 * 60;
-let timerRunning     = false;
-let musicPlaying     = false;
+let subjects              = JSON.parse(localStorage.getItem("subjects")) || [];
+let currentSubject        = null;
+let timerInterval         = null;
+let timerSeconds          = 25 * 60;
+let timerRunning          = false;
+let musicPlaying          = false;
 let currentFlashcards     = [];
 let currentQuizQuestions  = [];
 let currentMode           = null; // "flashcard" | "quiz"
@@ -57,13 +55,11 @@ function renderSubjects(filter = "") {
     const div = document.createElement("div");
     div.className = "subject-card" + (currentSubject?.id === sub.id ? " active" : "");
 
-    // Main clickable area
     const info = document.createElement("div");
     info.className = "subject-info";
     info.innerHTML = `<h3>${sub.name}</h3><p>${sub.files.length} file${sub.files.length !== 1 ? "s" : ""}</p>`;
     info.onclick = () => loadSubject(sub.id);
 
-    // Action buttons
     const actions = document.createElement("div");
     actions.className = "subject-actions";
 
@@ -232,21 +228,15 @@ async function askAI(prompt, systemPrompt) {
   const fullPrompt = `${system}\n\nSUBJECT: ${currentSubject.name}\n\nSTUDY MATERIAL:\n${context}\n\nTASK: ${prompt}`;
   try {
     const res = await fetch(
-  `https://generativelanguage.googleapis.com/v1beta/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`,
-  {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      contents: [
-        {
-          parts: [
-            { text: fullPrompt }
-          ]
-        }
-      ]
-    })
-  }
-);
+      `https://generativelanguage.googleapis.com/v1beta/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: fullPrompt }] }]
+        })
+      }
+    );
     const data = await res.json();
     if (data.error) return `API error: ${data.error.message}`;
     const text = data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
@@ -335,28 +325,27 @@ async function sendEditMessage() {
 
   try {
     const editSystem = "You are a study assistant helping edit flashcards or quiz questions. Follow the exact format. Output ONLY the cards/questions, no preamble.";
- const res = await fetch(
-  `https://generativelanguage.googleapis.com/v1beta/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`,
-  {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      contents: [
-        {
-          parts: [
-            {
-              text: `${editSystem}\n\n${formatPrompt}`
-            }
-          ]
-        }
-      ]
-    })
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: `${editSystem}\n\n${formatPrompt}` }] }]
+        })
+      }
+    );
+    const data = await res.json();
+    const text = data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || "No response.";
+    renderer(text);
+  } catch (err) {
+    typingDiv.innerHTML = "Error: " + err.message;
   }
-);
+}
 
-const data = await res.json();
-let text = data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || "No response.";
-renderer(text);
+// =========================
+// ADD EDIT MESSAGE
+// =========================
 function addEditMessage(text, type) {
   const div = document.createElement("div");
   div.className = `chat-bubble ${type}`;
@@ -375,9 +364,14 @@ function parseFlashcards(text) {
   let currentQ = "", currentA = "";
   for (let line of lines) {
     line = line.trim();
-    if (line.match(/^Q[:)]/i)) { if (currentQ && currentA) pairs.push({ q: currentQ, a: currentA }); currentQ = line.replace(/^Q[:)]\s*/i, ""); currentA = ""; }
-    else if (line.match(/^A[:)]/i)) { currentA = line.replace(/^A[:)]\s*/i, ""); }
-    else if (currentA && line) { currentA += " " + line; }
+    if (line.match(/^Q[:)]/i)) {
+      if (currentQ && currentA) pairs.push({ q: currentQ, a: currentA });
+      currentQ = line.replace(/^Q[:)]\s*/i, ""); currentA = "";
+    } else if (line.match(/^A[:)]/i)) {
+      currentA = line.replace(/^A[:)]\s*/i, "");
+    } else if (currentA && line) {
+      currentA += " " + line;
+    }
   }
   if (currentQ && currentA) pairs.push({ q: currentQ, a: currentA });
   return pairs;
@@ -506,8 +500,9 @@ window.answerQ = function(qi, oi, correct) {
   document.querySelectorAll(`#qq-${qi} .q-opt`).forEach(b => b.disabled = true);
   const chosen = document.getElementById(`opt-${qi}-${oi}`);
   const fb = document.getElementById(`fb-${qi}`);
-  if (oi === correct) { chosen.classList.add("correct"); fb.textContent = "✅ Correct!"; fb.style.color = "#4ade80"; qd.correct++; }
-  else {
+  if (oi === correct) {
+    chosen.classList.add("correct"); fb.textContent = "✅ Correct!"; fb.style.color = "#4ade80"; qd.correct++;
+  } else {
     chosen.classList.add("wrong");
     fb.textContent = correct >= 0 ? `❌ Wrong — correct answer was ${qd.questions[qi].options[correct]?.letter}` : "❌ Wrong";
     fb.style.color = "#f87171";
@@ -544,7 +539,10 @@ async function runTool(prompt, btnId, renderer) {
   btn.disabled = false; btn.classList.remove("loading");
 }
 
-document.getElementById("summarizeBtn").onclick = () => runTool("Summarize all the key concepts and important points from this study material. Use headers, bold key terms, and bullet points.", "summarizeBtn");
+document.getElementById("summarizeBtn").onclick = () => runTool(
+  "Summarize all the key concepts and important points from this study material. Use headers, bold key terms, and bullet points.",
+  "summarizeBtn"
+);
 
 document.getElementById("flashcardBtn").onclick = () => runTool(
   `Create exactly 10 flashcard Q&A pairs from this study material.\nUse this EXACT format for each, with no extra text between them:\nQ: [question here]\nA: [answer here]`,
@@ -556,16 +554,30 @@ document.getElementById("quizBtn").onclick = () => runTool(
   "quizBtn", renderQuiz
 );
 
-document.getElementById("studyPlanBtn").onclick = () => runTool("Create a structured study plan for mastering this material. Break it into daily sessions with specific topics. Use bold headings and bullet points.", "studyPlanBtn");
-document.getElementById("eli5Btn").onclick = () => runTool("Explain the main concepts from this study material like I am 5 years old. Use simple words, fun analogies, and bullet points.", "eli5Btn");
-document.getElementById("mnemonicBtn").onclick = () => runTool("Create memory tricks, mnemonics, and acronyms to help remember the key concepts. Use bold for the mnemonics.", "mnemonicBtn");
+document.getElementById("studyPlanBtn").onclick = () => runTool(
+  "Create a structured study plan for mastering this material. Break it into daily sessions with specific topics. Use bold headings and bullet points.",
+  "studyPlanBtn"
+);
+
+document.getElementById("eli5Btn").onclick = () => runTool(
+  "Explain the main concepts from this study material like I am 5 years old. Use simple words, fun analogies, and bullet points.",
+  "eli5Btn"
+);
+
+document.getElementById("mnemonicBtn").onclick = () => runTool(
+  "Create memory tricks, mnemonics, and acronyms to help remember the key concepts. Use bold for the mnemonics.",
+  "mnemonicBtn"
+);
 
 document.getElementById("practiceTestBtn").onclick = () => runTool(
   `Create a practice test with 6 multiple choice questions from this study material.\nUse this EXACT format:\n1. [Question text]\nA. [option]\nB. [option]\nC. [option] (correct)\nD. [option]\n\nMark the correct answer with (correct) after it.`,
   "practiceTestBtn", renderQuiz
 );
 
-document.getElementById("weaknessBtn").onclick = () => runTool("Identify the 3-5 most complex or tricky concepts in this material. Use bold headers for each concept, explain why it is difficult, and give tips for mastering it.", "weaknessBtn");
+document.getElementById("weaknessBtn").onclick = () => runTool(
+  "Identify the 3-5 most complex or tricky concepts in this material. Use bold headers for each concept, explain why it is difficult, and give tips for mastering it.",
+  "weaknessBtn"
+);
 
 // =========================
 // CHAT
@@ -622,7 +634,10 @@ function awardXP(amount) {
   if (!currentSubject) return;
   currentSubject.xp = (currentSubject.xp || 0) + amount;
   const newLevel = Math.floor(currentSubject.xp / 100) + 1;
-  if (newLevel > currentSubject.level) { currentSubject.level = newLevel; confetti({ particleCount: 120, spread: 70, origin: { y: 0.6 } }); }
+  if (newLevel > currentSubject.level) {
+    currentSubject.level = newLevel;
+    confetti({ particleCount: 120, spread: 70, origin: { y: 0.6 } });
+  }
   document.getElementById("xp").innerText = currentSubject.xp;
   document.getElementById("level").innerText = currentSubject.level;
   save();
@@ -634,7 +649,6 @@ function awardXP(amount) {
 // =========================
 const themeBtn = document.getElementById("themeToggle");
 
-// Load saved theme
 if (localStorage.getItem("theme") === "light") {
   document.body.classList.add("light");
   themeBtn.textContent = "🌞 Light Mode";
