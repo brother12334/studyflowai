@@ -1,10 +1,10 @@
 // =========================
-// STUDYFLOW AI — FIXED
-// Uses Google Gemini API (gemini-2.0-flash)
+// STUDYFLOW AI
+// Uses OpenRouter API (free tier)
 // =========================
 
-const GEMINI_API_KEY = "AIzaSyCL1pYBWL-Cf3SmqGqBUalmyHBMppvp_VM";
-const GEMINI_MODEL = "gemini-2.0-flash";
+const OR_API_KEY = "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";
+const OR_MODEL = "meta-llama/llama-3.2-3b-instruct:free";
 
 // =========================
 // STATE
@@ -49,7 +49,7 @@ document.getElementById("newSubjectBtn").onclick = () => {
 };
 
 // =========================
-// SEARCH — filters subject list
+// SEARCH
 // =========================
 
 document.getElementById("searchInput").addEventListener("input", (e) => {
@@ -94,7 +94,7 @@ function loadSubject(id) {
 }
 
 // =========================
-// FILE UPLOAD — drag-and-drop + click
+// FILE UPLOAD
 // =========================
 
 const dropZone = document.getElementById("dropZone");
@@ -134,7 +134,7 @@ async function handleFileList(files) {
 }
 
 // =========================
-// TEXT EXTRACTION — PDF, DOCX, TXT
+// TEXT EXTRACTION
 // =========================
 
 async function extractText(file) {
@@ -209,7 +209,7 @@ function getRelevantChunks(question) {
 }
 
 // =========================
-// GEMINI API
+// OPENROUTER API
 // =========================
 
 async function askAI(prompt) {
@@ -225,37 +225,32 @@ async function askAI(prompt) {
   const sources = chunks.map(c => `${c.source} | Chunk ${c.page}`).join("\n");
 
   try {
-    const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contents: [{
+    const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${OR_API_KEY}`
+      },
+      body: JSON.stringify({
+        model: OR_MODEL,
+        messages: [
+          {
+            role: "system",
+            content: "You are a focused study assistant. Answer ONLY from the study material provided. If the answer is not in the material, say \"Not found in your study material.\" Be concise and helpful."
+          },
+          {
             role: "user",
-            parts: [{
-              text: `You are a focused study assistant. Answer ONLY from the study material below. If the answer is not in the material, say "Not found in your study material." Be concise and helpful.
-
-SUBJECT: ${currentSubject.name}
-
-STUDY MATERIAL:
-${context}
-
-QUESTION: ${prompt}`
-            }]
-          }]
-        })
-      }
-    );
+            content: `SUBJECT: ${currentSubject.name}\n\nSTUDY MATERIAL:\n${context}\n\nQUESTION: ${prompt}`
+          }
+        ]
+      })
+    });
 
     const data = await res.json();
 
-    if (data?.promptFeedback?.blockReason)
-      return `Blocked by API: ${data.promptFeedback.blockReason}`;
-
     if (data.error) return `API error: ${data.error.message}`;
 
-    const text = data?.candidates?.[0]?.content?.parts?.map(p => p.text || "").join("").trim();
+    const text = data?.choices?.[0]?.message?.content?.trim();
     if (!text) return "AI returned an empty response. Try rephrasing.";
 
     return `${text}\n\n---\nSources:\n${sources}`;
