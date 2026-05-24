@@ -210,10 +210,18 @@ function chunkText(text, fileName, size = 1200) {
 // =========================
 function getRelevantChunks(question) {
   if (!currentSubject || !currentSubject.chunks.length) return [];
+
   const words = question.toLowerCase().split(/\s+/).filter(w => w.length > 2);
+
   return currentSubject.chunks
-    .map(c => { let score = 0; const t = c.text.toLowerCase(); for (let w of words) { if (t.includes(w)) score += 2; } return { ...c, score }; })
-    .sort((a, b) => b.score - a.score).slice(0, 6);
+    .map(c => {
+      let score = 0;
+      const t = c.text.toLowerCase();
+      for (let w of words) if (t.includes(w)) score += 2;
+      return { ...c, score };
+    })
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 1); // ✅ ONLY 1 CHUNK (massive cost reduction)
 }
 
 // Returns context sampled evenly across ALL files so no document is ignored.
