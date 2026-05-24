@@ -4,6 +4,8 @@
 
 const GEMINI_API_KEY = "AIzaSyA9rsJ6msdJvoceOzC5YsaCDGmX2I0YpxY";
 
+const GEMINI_MODEL = "models/gemini-2.5-flash";
+
 
 // =========================
 // STATE
@@ -229,8 +231,7 @@ async function askAI(prompt, systemPrompt) {
   const system = systemPrompt || `You are a focused study assistant. Answer ONLY from the study material provided. If the answer is not in the material, say "Not found in your study material." Be concise and helpful. Use markdown formatting: **bold** for key terms, bullet points for lists.`;
   const fullPrompt = `${system}\n\nSUBJECT: ${currentSubject.name}\n\nSTUDY MATERIAL:\n${context}\n\nTASK: ${prompt}`;
   try {
-    const res = await fetch(
-  `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=YOUR_KEY`,
+    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`, {
   {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -325,8 +326,8 @@ async function sendEditMessage() {
 
   try {
     const editSystem = "You are a study assistant helping edit flashcards or quiz questions. Follow the exact format. Output ONLY the cards/questions, no preamble.";
-    const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=YOUR_KEY`,
+    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`, {
+  {,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
