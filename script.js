@@ -14,7 +14,7 @@ if (!CLAUDE_API_KEY) {
   }
 }
 
-const CLAUDE_MODEL = "claude-sonnet-4-20250514";
+const CLAUDE_MODEL = "claude-sonnet-4-6";
 
 // =========================
 // STATE
