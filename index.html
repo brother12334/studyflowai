@@ -2,148 +2,293 @@
 <html lang="en">
 
 <head>
-  <link href="https://fonts.googleapis.com/css2?family=Sora:wght@800&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="intro.css">
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>StudyFlow AI</title>
-  <link rel="stylesheet" href="styles.css">
+
+  <!-- Single font load — Sora for display, Inter for body -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Sora:wght@800&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+
+  <link rel="stylesheet" href="intro.css">
+  <link rel="stylesheet" href="styles.css">
+
+  <!-- PDF.js with worker configured inline to avoid silent failures -->
   <script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js"></script>
+  <script>
+    pdfjsLib.GlobalWorkerOptions.workerSrc =
+      "https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js";
+  </script>
+
   <script src="https://unpkg.com/mammoth/mammoth.browser.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+  <!-- Force black dark theme as default — overrides any saved "light" if none set -->
+  <script>
+    if (!localStorage.getItem("theme")) {
+      localStorage.setItem("theme", "dark");
+    }
+    if (localStorage.getItem("theme") === "light") {
+      document.documentElement.classList.add("light");
+    }
+  </script>
+
+  <style>
+    /* =============================================
+       BLACK DARK THEME OVERRIDE
+       Targets both :root and body so it applies
+       before styles.css paints anything purple.
+    ============================================= */
+    :root {
+      --bg-primary:   #000000;
+      --bg-secondary: #0a0a0a;
+      --bg-glass:     rgba(255,255,255,0.04);
+      --bg-glass-hover: rgba(255,255,255,0.07);
+      --border:       rgba(255,255,255,0.08);
+      --text-primary: #f0f0f0;
+      --text-muted:   #888;
+      --accent:       #ffffff;
+      --accent-soft:  rgba(255,255,255,0.12);
+    }
+
+    /* Light mode keeps its own colours from styles.css */
+    html.light body { background: #f5f5f5; }
+
+    body {
+      background: var(--bg-primary) !important;
+      color: var(--text-primary);
+    }
+
+    /* Kill any purple gradients that may come from styles.css */
+    body:not(.light) .sidebar,
+    body:not(.light) .glass-panel,
+    body:not(.light) .chat-panel,
+    body:not(.light) .edit-panel,
+    body:not(.light) .tools-grid .tool-btn,
+    body:not(.light) .upload-area {
+      background: var(--bg-glass) !important;
+      border-color: var(--border) !important;
+    }
+
+    body:not(.light) .primary-btn {
+      background: #fff !important;
+      color: #000 !important;
+    }
+
+    body:not(.light) .tool-btn:hover {
+      background: var(--bg-glass-hover) !important;
+      border-color: rgba(255,255,255,0.2) !important;
+    }
+
+    /* =============================================
+       CACHE BAR STYLES
+    ============================================= */
+    #cacheBar {
+      display: none;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 10px 16px;
+      margin-bottom: 12px;
+      border-radius: 10px;
+      background: rgba(255,255,255,0.05);
+      border: 1px solid rgba(255,255,255,0.1);
+      font-size: 0.85rem;
+      color: var(--text-muted, #888);
+    }
+
+    html.light #cacheBar {
+      background: rgba(0,0,0,0.04);
+      border-color: rgba(0,0,0,0.1);
+    }
+
+    #cacheBar #cacheLabel {
+      flex: 1;
+    }
+
+    #cacheBar #regenBtn {
+      padding: 5px 12px;
+      border-radius: 6px;
+      border: 1px solid rgba(255,255,255,0.15);
+      background: transparent;
+      color: inherit;
+      cursor: pointer;
+      font-size: 0.82rem;
+      white-space: nowrap;
+      transition: background 0.2s;
+    }
+
+    #cacheBar #regenBtn:hover {
+      background: rgba(255,255,255,0.08);
+    }
+
+    html.light #cacheBar #regenBtn {
+      border-color: rgba(0,0,0,0.15);
+    }
+
+    html.light #cacheBar #regenBtn:hover {
+      background: rgba(0,0,0,0.06);
+    }
+  </style>
 </head>
 
 <body>
-  
+
+  <!-- INTRO SPLASH -->
   <div id="introSplash">
-  <div class="intro-grid"></div>
-  <div class="intro-glow-1"></div>
-  <div class="intro-glow-2"></div>
-  <canvas id="introCanvas"></canvas>
-  <div class="intro-content">
-    <div class="intro-icon-ring"></div>
-    <div class="intro-icon">📚</div>
-    <h1 class="intro-title">StudyFlow AI</h1>
-    <p class="intro-tagline"></p><span class="intro-cursor"></span>
-    <p class="intro-credit"></p>
-    <div class="intro-bar-wrap"><div class="intro-bar-fill"></div></div>
+    <div class="intro-grid"></div>
+    <div class="intro-glow-1"></div>
+    <div class="intro-glow-2"></div>
+    <canvas id="introCanvas"></canvas>
+    <div class="intro-content">
+      <div class="intro-icon-ring"></div>
+      <div class="intro-icon">📚</div>
+      <h1 class="intro-title">StudyFlow AI</h1>
+      <p class="intro-tagline"></p><span class="intro-cursor"></span>
+      <p class="intro-credit"></p>
+      <div class="intro-bar-wrap"><div class="intro-bar-fill"></div></div>
+    </div>
   </div>
-</div>
 
-<div class="background-blur"></div>
+  <div class="background-blur"></div>
 
-<div class="app">
+  <div class="app">
 
-  <!-- SIDEBAR -->
-  <aside class="sidebar">
+    <!-- SIDEBAR -->
+    <aside class="sidebar">
 
-    <h1 class="logo">📚 StudyFlow AI</h1>
+      <h1 class="logo">📚 StudyFlow AI</h1>
 
-    <button id="newSubjectBtn" class="primary-btn">+ Add Subject</button>
+      <button id="newSubjectBtn" class="primary-btn">+ Add Subject</button>
 
-    <!-- FIX #10: added width:100% in CSS, placeholder works now -->
-    <input type="text" id="searchInput" placeholder="Search subjects...">
+      <input type="text" id="searchInput" placeholder="Search subjects...">
 
-    <div id="subjectList"></div>
+      <div id="subjectList"></div>
 
-    <div class="sidebar-bottom">
-      <button id="themeToggle">🌙 Toggle Theme</button>
-      <button id="musicToggle">🎵 Music</button>
-    </div>
-
-  </aside>
-
-  <!-- MAIN CONTENT -->
-  <main class="main-content">
-
-    <!-- TOP BAR -->
-    <div class="top-bar">
-      <div>
-        <h2 id="subjectTitle">Select a Subject</h2>
-        <p id="subjectSubtitle">Upload study guides to begin.</p>
+      <div class="sidebar-bottom">
+        <button id="themeToggle">🌙 Dark Mode</button>
+        <button id="musicToggle">🎵 Music</button>
+        <button id="resetKeyBtn">🔑 Reset API Key</button>
       </div>
-      <div class="stats-container">
-        <div class="stat-card">🔥 <span id="streak">0</span></div>
-        <div class="stat-card">⭐ <span id="xp">0</span> XP</div>
-        <div class="stat-card">🏆 Lv.<span id="level">1</span></div>
+
+    </aside>
+
+    <!-- MAIN CONTENT -->
+    <main class="main-content">
+
+      <!-- TOP BAR -->
+      <div class="top-bar">
+        <div>
+          <h2 id="subjectTitle">Select a Subject</h2>
+          <p id="subjectSubtitle">Upload study guides to begin.</p>
+        </div>
+        <div class="stats-container">
+          <div class="stat-card">🔥 <span id="streak">0</span></div>
+          <div class="stat-card">⭐ <span id="xp">0</span> XP</div>
+          <div class="stat-card">🏆 Lv.<span id="level">1</span></div>
+        </div>
       </div>
-    </div>
 
-    <!-- UPLOAD — FIX #9: added accept attribute, FIX #11: label wraps input -->
-    <div class="upload-area" id="dropZone">
-      <h3>Drop Files Here</h3>
-      <p>PDF, DOCX, TXT</p>
-      <label class="upload-label" for="fileInput">Browse Files</label>
-      <input type="file" id="fileInput" multiple accept=".pdf,.docx,.txt,text/plain,application/pdf">
-    </div>
+      <!-- UPLOAD -->
+      <div class="upload-area" id="dropZone">
+        <h3>Drop Files Here</h3>
+        <p>PDF, DOCX, TXT</p>
+        <label class="upload-label" for="fileInput">Browse Files</label>
+        <input type="file" id="fileInput" multiple accept=".pdf,.docx,.txt,text/plain,application/pdf">
+      </div>
 
-    <!-- FILES -->
-    <div class="glass-panel">
-      <h3>Uploaded Files</h3>
-      <ul id="fileList"></ul>
-    </div>
+      <!-- FILES -->
+      <div class="glass-panel">
+        <h3>Uploaded Files</h3>
+        <ul id="fileList"></ul>
+      </div>
 
-    <!-- TOOLS — FIX #1: renamed examBtn → practiceTestBtn to match HTML -->
-    <div class="tools-grid">
-      <button class="tool-btn" id="summarizeBtn">🧠 Summarize Notes</button>
-      <button class="tool-btn" id="flashcardBtn">🃏 Generate Flashcards</button>
-      <button class="tool-btn" id="quizBtn">❓ Generate Quiz</button>
-      <button class="tool-btn" id="studyPlanBtn">📅 Study Plan</button>
-      <button class="tool-btn" id="eli5Btn">🧒 Explain Like I'm 5</button>
-      <button class="tool-btn" id="mnemonicBtn">🧩 Memory Tricks</button>
-      <button class="tool-btn" id="practiceTestBtn">📝 Practice Test</button>
-      <button class="tool-btn" id="weaknessBtn">📉 Weakness Detector</button>
-    </div>
+      <!-- TOOLS -->
+      <div class="tools-grid">
+        <button class="tool-btn" id="summarizeBtn">🧠 Summarize Notes</button>
+        <button class="tool-btn" id="flashcardBtn">🃏 Generate Flashcards</button>
+        <button class="tool-btn" id="quizBtn">❓ Generate Quiz</button>
+        <button class="tool-btn" id="studyPlanBtn">📅 Study Plan</button>
+        <button class="tool-btn" id="eli5Btn">🧒 Explain Like I'm 5</button>
+        <button class="tool-btn" id="mnemonicBtn">🧩 Memory Tricks</button>
+        <button class="tool-btn" id="practiceTestBtn">📝 Practice Test</button>
+        <button class="tool-btn" id="weaknessBtn">📉 Weakness Detector</button>
+      </div>
 
-    <!-- OUTPUT -->
-    <div class="glass-panel">
-      <h3>AI Output</h3>
-      <div id="output"></div>
-    </div>
+      <!-- CACHE BAR — was missing from original, caused silent JS failures -->
+      <div id="cacheBar">
+        <span id="cacheLabel">Showing saved result</span>
+        <button id="regenBtn">🔄 Regenerate</button>
+      </div>
 
-    <!-- EDIT PANEL (appears after flashcards or quiz are generated) -->
-<div class="edit-panel" id="editPanel">
-  <div class="edit-panel-header">
-    <h3 id="editPanelTitle">✏️ Edit with AI</h3>
-    <button class="edit-close-btn" id="editCloseBtn">✕</button>
+      <!-- OUTPUT -->
+      <div class="glass-panel">
+        <h3>AI Output</h3>
+        <div id="output"></div>
+      </div>
+
+      <!-- EDIT PANEL -->
+      <div class="edit-panel" id="editPanel">
+        <div class="edit-panel-header">
+          <h3 id="editPanelTitle">✏️ Edit with AI</h3>
+          <button class="edit-close-btn" id="editCloseBtn">✕</button>
+        </div>
+        <div id="editMessages"></div>
+        <div class="edit-row">
+          <input type="text" id="editInput" placeholder="Ask AI to edit...">
+          <button id="editSendBtn">Ask AI</button>
+        </div>
+      </div>
+
+      <!-- CHAT -->
+      <div class="chat-panel">
+        <h3>Study Assistant</h3>
+        <div id="chatMessages"></div>
+        <div class="chat-row">
+          <input type="text" id="chatInput" placeholder="Ask anything about this subject...">
+          <button id="sendBtn">Send</button>
+        </div>
+      </div>
+
+      <!-- POMODORO -->
+      <div class="glass-panel">
+        <h3>Pomodoro Timer</h3>
+        <div id="timer">25:00</div>
+        <div class="timer-controls">
+          <button id="startTimer">▶ Start</button>
+          <button id="pauseTimer">⏸ Pause</button>
+          <button id="resetTimer">↺ Reset</button>
+        </div>
+      </div>
+
+    </main>
   </div>
-  <div id="editMessages"></div>
-  <div class="edit-row">
-    <input type="text" id="editInput" placeholder="Ask AI to edit...">
-    <button id="editSendBtn">Ask AI</button>
-  </div>
-</div>
 
-    <!-- CHAT -->
-    <div class="chat-panel">
-      <h3>Study Assistant</h3>
-      <div id="chatMessages"></div>
-      <div class="chat-row">
-        <input type="text" id="chatInput" placeholder="Ask anything about this subject...">
-        <button id="sendBtn">Send</button>
-      </div>
-    </div>
-
-    <!-- POMODORO -->
-    <div class="glass-panel">
-      <h3>Pomodoro Timer</h3>
-      <div id="timer">25:00</div>
-      <div class="timer-controls">
-        <button id="startTimer">▶ Start</button>
-        <button id="pauseTimer">⏸ Pause</button>
-        <button id="resetTimer">↺ Reset</button>
-      </div>
-    </div>
-
-  </main>
-</div>
-
-<audio id="studyMusic" loop src="https://cdn.pixabay.com/download/audio/2022/03/15/audio_c8c8a73467.mp3?filename=lofi-study-112191.mp3"></audio>
+  <audio id="studyMusic" loop src="https://cdn.pixabay.com/download/audio/2022/03/15/audio_c8c8a73467.mp3?filename=lofi-study-112191.mp3"></audio>
 
   <script src="intro.js"></script>
-<script src="script.js"></script>
+  <script src="script.js"></script>
+
+  <!-- Patch theme toggle to work with html.light class instead of body.light -->
+  <script>
+    // Re-wire theme toggle after script.js runs, since script.js uses body.classList
+    // and we need html.classList for early paint. Keep both in sync.
+    const _origToggle = document.getElementById("themeToggle");
+    if (_origToggle) {
+      _origToggle.onclick = () => {
+        document.body.classList.toggle("light");
+        document.documentElement.classList.toggle("light");
+        const isLight = document.body.classList.contains("light");
+        _origToggle.textContent = isLight ? "🌞 Light Mode" : "🌙 Dark Mode";
+        localStorage.setItem("theme", isLight ? "light" : "dark");
+      };
+      // Set correct label on load
+      const saved = localStorage.getItem("theme");
+      _origToggle.textContent = saved === "light" ? "🌞 Light Mode" : "🌙 Dark Mode";
+    }
+  </script>
+
 </body>
 </html>
