@@ -1,5 +1,5 @@
 // =========================
-// CLAUDE API (FIXED)
+// CLAUDE API KEY
 // =========================
 
 let CLAUDE_API_KEY = localStorage.getItem("claude_api_key") || "";
@@ -14,88 +14,35 @@ if (!CLAUDE_API_KEY) {
   }
 }
 
-// ✅ WORKING MODEL
 const CLAUDE_MODEL = "claude-sonnet-4-6";
-
-async function askAI(prompt, systemPrompt) {
-  if (!currentSubject) return "Select a subject first.";
-  if (!currentSubject.chunks.length) return "No study material uploaded yet.";
-
-  const chunks = getRelevantChunks(prompt);
-
-  const context = chunks
-    .filter(c => c.text && c.text.length > 20)
-    .map(c => c.text.split(" ").slice(0, 180).join(" "))
-    .join("\n\n");
-
-  const system = systemPrompt || `
-You are a strict study assistant.
-Only use provided material.
-If missing, say "Not found in your study material."
-Be concise.
-`;
-
-  const fullPrompt = `
-SUBJECT: ${currentSubject.name}
-
-STUDY MATERIAL:
-${context}
-
-QUESTION:
-${prompt}
-`;
-
-  try {
-    const res = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": CLAUDE_API_KEY,
-        "anthropic-version": "2023-06-01",
-        "anthropic-dangerous-direct-browser-access": "true"
-      },
-      body: JSON.stringify({
-        model: CLAUDE_MODEL,
-        max_tokens: 500,
-        system,
-        messages: [
-          { role: "user", content: fullPrompt }
-        ]
-      })
-    });
-
-    const data = await res.json();
-
-    // 🔥 REAL ERROR OUTPUT
-    if (!res.ok) {
-      console.error("Claude API ERROR:", data);
-      return data?.error?.message || "API request failed.";
-    }
-
-    const text = data?.content?.[0]?.text?.trim();
-
-    if (!text) return "AI returned no response.";
-
-    return text;
-
-  } catch (err) {
-    console.error("NETWORK ERROR:", err);
-    return "Network error (check key / CORS / connection).";
-  }
-}
 
 // =========================
 // STATE
 // =========================
-let subjects              = JSON.parse(localStorage.getItem("subjects")) || [];
-let currentSubject        = null;
-let timerInterval         = null;
-let timerSeconds          = 25 * 60;
-let timerRunning          = false;
-let musicPlaying          = false;
-let currentFlashcards     = [];
-let currentQuizQuestions  = [];
-let currentMode           = null;
+let subjects             = JSON.parse(localStorage.getItem("subjects")) || [];
+let currentSubject       = null;
+let timerInterval        = null;
+let timerSeconds         = 25 * 60;
+let timerRunning         = false;
+let musicPlaying         = false;
+let currentFlashcards    = [];
+let currentQuizQuestions = [];
+let currentMode          = null;
+let lastBtnId            = null;
+
+// =========================
+// CACHE KEY MAP
+// =========================
+const CACHE_KEYS = {
+  summarizeBtn:    "summary",
+  flashcardBtn:    "flashcards",
+  quizBtn:         "quiz",
+  studyPlanBtn:    "studyPlan",
+  eli5Btn:         "eli5",
+  mnemonicBtn:     "mnemonics",
+  practiceTestBtn: "practiceTest",
+  weaknessBtn:     "weakness"
+};
 
 // =========================
 // SAVE
@@ -110,7 +57,7 @@ function save() {
 document.getElementById("newSubjectBtn").onclick = () => {
   const name = prompt("Subject name?");
   if (!name || !name.trim()) return;
-  subjects.push({ id: Date.now(), name: name.trim(), files: [], chunks: [], chatHistory: [], xp: 0, level: 1, streak: 0 });
+  subjects.push({ id: Date.now(), name: name.trim(), files: [], chunks: [], chatHistory: [], xp: 0, level: 1, streak: 0, cache: {} });
   save();
   renderSubjects();
 };
@@ -191,6 +138,7 @@ function deleteSubject(id) {
     document.getElementById("xp").innerText = "0";
     document.getElementById("level").innerText = "1";
     hideEditPanel();
+    hideCacheBar();
   }
   save();
   renderSubjects();
@@ -201,6 +149,7 @@ function deleteSubject(id) {
 // =========================
 function loadSubject(id) {
   currentSubject = subjects.find(s => s.id === id);
+  if (!currentSubject.cache) currentSubject.cache = {};
   document.getElementById("subjectTitle").innerText = currentSubject.name;
   document.getElementById("subjectSubtitle").innerText = `${currentSubject.files.length} file(s) uploaded`;
   document.getElementById("xp").innerText = currentSubject.xp || 0;
@@ -209,6 +158,8 @@ function loadSubject(id) {
   renderChat();
   renderSubjects();
   hideEditPanel();
+  hideCacheBar();
+  lastBtnId = null;
 }
 
 // =========================
@@ -283,9 +234,7 @@ function chunkText(text, fileName, size = 1200) {
 // =========================
 function getRelevantChunks(question) {
   if (!currentSubject || !currentSubject.chunks.length) return [];
-
   const words = question.toLowerCase().split(/\s+/).filter(w => w.length > 2);
-
   return currentSubject.chunks
     .map(c => {
       let score = 0;
@@ -294,26 +243,20 @@ function getRelevantChunks(question) {
       return { ...c, score };
     })
     .sort((a, b) => b.score - a.score)
-    .slice(0, 1); // ✅ ONLY 1 CHUNK (massive cost reduction)
+    .slice(0, 1);
 }
 
-// Returns context sampled evenly across ALL files so no document is ignored.
 function getAllChunksContext() {
   if (!currentSubject || !currentSubject.chunks.length) return "";
-
   const MAX_CHARS = 80000;
-
-  // Group chunks by source file
   const byFile = {};
   for (const chunk of currentSubject.chunks) {
     const src = chunk.source || "unknown";
     if (!byFile[src]) byFile[src] = [];
     byFile[src].push(chunk);
   }
-
   const files = Object.keys(byFile);
   const charsPerFile = Math.floor(MAX_CHARS / files.length);
-
   const parts = files.map(src => {
     let text = "";
     for (const chunk of byFile[src]) {
@@ -322,36 +265,26 @@ function getAllChunksContext() {
     }
     return `--- Source: ${src} ---\n` + text.trim();
   });
-
   return parts.join("\n\n");
 }
 
 // =========================
-// CLAUDE API (ASK AI)
+// CLAUDE API (FOCUSED)
 // =========================
-
 async function askAI(prompt, systemPrompt) {
-
-  if (!currentSubject)
-    return "Select a subject first.";
-
-  if (!currentSubject.chunks.length)
-    return "No study material uploaded yet. Add files first.";
+  if (!currentSubject) return "Select a subject first.";
+  if (!currentSubject.chunks.length) return "No study material uploaded yet. Add files first.";
 
   const chunks = getRelevantChunks(prompt);
-
   const context = chunks
     .filter(c => c.text && c.text.length > 20)
-    .map(c =>
-      c.text.split(" ").slice(0, 180).join(" ")
-    )
+    .map(c => c.text.split(" ").slice(0, 180).join(" "))
     .join("\n\n");
 
   const system = systemPrompt || `
 You are a focused study assistant.
 Only use the provided study material.
-If the answer is not in the material, say:
-"Not found in your study material."
+If the answer is not in the material, say: "Not found in your study material."
 Be concise.
 `;
 
@@ -366,62 +299,37 @@ ${prompt}
 `;
 
   try {
-
-    const res = await fetch(
-      "https://api.anthropic.com/v1/messages",
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-api-key": CLAUDE_API_KEY,
-          "anthropic-version": "2023-06-01",
-          "anthropic-dangerous-direct-browser-access": "true"
-        },
-        body: JSON.stringify({
-          model: CLAUDE_MODEL,
-          max_tokens: 500,
-          system,
-          messages: [
-            {
-              role: "user",
-              content: fullPrompt
-            }
-          ]
-        })
-      }
-    );
-
+    const res = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": CLAUDE_API_KEY,
+        "anthropic-version": "2023-06-01",
+        "anthropic-dangerous-direct-browser-access": "true"
+      },
+      body: JSON.stringify({
+        model: CLAUDE_MODEL,
+        max_tokens: 500,
+        system,
+        messages: [{ role: "user", content: fullPrompt }]
+      })
+    });
     const data = await res.json();
-
-    console.log("Claude response:", data);
-
-    if (!res.ok) {
-      return `API Error: ${data?.error?.message || "Unknown error"}`;
-    }
-
+    if (!res.ok) return `API Error: ${data?.error?.message || "Unknown error"}`;
     return data?.content?.[0]?.text?.trim() || "No response.";
-
   } catch (err) {
-    console.error("Claude error:", err);
     return `Network/API error: ${err.message}`;
   }
 }
 
-
 // =========================
 // CLAUDE API (FULL CONTEXT)
 // =========================
-
 async function askAIFull(prompt, systemPrompt) {
-
-  if (!currentSubject)
-    return "Select a subject first.";
-
-  if (!currentSubject.chunks.length)
-    return "No study material uploaded yet. Add files first.";
+  if (!currentSubject) return "Select a subject first.";
+  if (!currentSubject.chunks.length) return "No study material uploaded yet. Add files first.";
 
   const context = getAllChunksContext();
-
   const system = systemPrompt || `
 You are a study assistant.
 Use ONLY the provided material.
@@ -439,46 +347,144 @@ ${prompt}
 `;
 
   try {
-
-    const res = await fetch(
-      "https://api.anthropic.com/v1/messages",
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-api-key": CLAUDE_API_KEY,
-          "anthropic-version": "2023-06-01",
-          "anthropic-dangerous-direct-browser-access": "true"
-        },
-        body: JSON.stringify({
-          model: CLAUDE_MODEL,
-          max_tokens: 1500,
-          system,
-          messages: [
-            {
-              role: "user",
-              content: fullPrompt
-            }
-          ]
-        })
-      }
-    );
-
+    const res = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": CLAUDE_API_KEY,
+        "anthropic-version": "2023-06-01",
+        "anthropic-dangerous-direct-browser-access": "true"
+      },
+      body: JSON.stringify({
+        model: CLAUDE_MODEL,
+        max_tokens: 1500,
+        system,
+        messages: [{ role: "user", content: fullPrompt }]
+      })
+    });
     const data = await res.json();
-
-    console.log("Claude full response:", data);
-
-    if (!res.ok) {
-      return `API Error: ${data?.error?.message || "Unknown error"}`;
-    }
-
+    if (!res.ok) return `API Error: ${data?.error?.message || "Unknown error"}`;
     return data?.content?.[0]?.text?.trim() || "No response.";
-
   } catch (err) {
-    console.error("Claude full error:", err);
     return `Network/API error: ${err.message}`;
   }
 }
+
+// =========================
+// CACHE BAR
+// =========================
+function showCacheBar(btnId) {
+  const bar = document.getElementById("cacheBar");
+  if (!bar) return;
+  const label = document.getElementById("cacheLabel");
+  const names = {
+    summarizeBtn:    "Summary",
+    flashcardBtn:    "Flashcards",
+    quizBtn:         "Quiz",
+    studyPlanBtn:    "Study Plan",
+    eli5Btn:         "ELI5",
+    mnemonicBtn:     "Mnemonics",
+    practiceTestBtn: "Practice Test",
+    weaknessBtn:     "Weak Spots"
+  };
+  if (label) label.textContent = `Showing saved ${names[btnId] || "result"}`;
+  bar.style.display = "flex";
+}
+
+function hideCacheBar() {
+  const bar = document.getElementById("cacheBar");
+  if (bar) bar.style.display = "none";
+}
+
+document.getElementById("regenBtn")?.addEventListener("click", () => {
+  if (!lastBtnId || !currentSubject) return;
+  const cacheKey = CACHE_KEYS[lastBtnId];
+  if (cacheKey && currentSubject.cache) {
+    delete currentSubject.cache[cacheKey];
+    save();
+  }
+  hideCacheBar();
+  document.getElementById(lastBtnId)?.click();
+});
+
+// =========================
+// TOOL RUNNER (with cache)
+// =========================
+async function runTool(prompt, btnId, renderer) {
+  if (!currentSubject) { alert("Select a subject first."); return; }
+  if (!currentSubject.chunks.length) { alert("Upload study files first."); return; }
+
+  if (!currentSubject.cache) currentSubject.cache = {};
+  const cacheKey = CACHE_KEYS[btnId];
+  lastBtnId = btnId;
+
+  // Serve from cache if available
+  if (cacheKey && currentSubject.cache[cacheKey]) {
+    hideEditPanel();
+    renderer
+      ? renderer(currentSubject.cache[cacheKey])
+      : setOutput(currentSubject.cache[cacheKey]);
+    showCacheBar(btnId);
+    return;
+  }
+
+  const btn = document.getElementById(btnId);
+  btn.disabled = true; btn.classList.add("loading");
+  document.getElementById("output").innerHTML = `<p style="opacity:0.5">⏳ Thinking...</p>`;
+  hideEditPanel();
+  hideCacheBar();
+
+  const result = await askAI(prompt);
+
+  if (cacheKey) {
+    currentSubject.cache[cacheKey] = result;
+    save();
+  }
+
+  renderer ? renderer(result) : setOutput(result);
+  awardXP(10);
+  btn.disabled = false; btn.classList.remove("loading");
+  showCacheBar(btnId);
+}
+
+async function runToolFull(prompt, btnId, renderer) {
+  if (!currentSubject) { alert("Select a subject first."); return; }
+  if (!currentSubject.chunks.length) { alert("Upload study files first."); return; }
+
+  if (!currentSubject.cache) currentSubject.cache = {};
+  const cacheKey = CACHE_KEYS[btnId];
+  lastBtnId = btnId;
+
+  // Serve from cache if available
+  if (cacheKey && currentSubject.cache[cacheKey]) {
+    hideEditPanel();
+    renderer
+      ? renderer(currentSubject.cache[cacheKey])
+      : setOutput(currentSubject.cache[cacheKey]);
+    showEditPanel(btnId === "flashcardBtn" ? "flashcard" : "quiz");
+    showCacheBar(btnId);
+    return;
+  }
+
+  const btn = document.getElementById(btnId);
+  btn.disabled = true; btn.classList.add("loading");
+  document.getElementById("output").innerHTML = `<p style="opacity:0.5">⏳ Generating from full material...</p>`;
+  hideEditPanel();
+  hideCacheBar();
+
+  const result = await askAIFull(prompt);
+
+  if (cacheKey) {
+    currentSubject.cache[cacheKey] = result;
+    save();
+  }
+
+  renderer ? renderer(result) : setOutput(result);
+  awardXP(10);
+  btn.disabled = false; btn.classList.remove("loading");
+  showCacheBar(btnId);
+}
+
 // =========================
 // MARKDOWN RENDERER
 // =========================
@@ -542,8 +548,18 @@ async function sendEditMessage() {
     formatPrompt = `Current flashcards:\n${currentData}\n\nUser request: ${msg}\n\nRespond ONLY with the full updated set in this EXACT format:\nQ: [question]\nA: [answer]`;
     renderer = (text) => {
       const pairs = parseFlashcards(text);
-      if (pairs.length > 0) { currentFlashcards = pairs; renderFlashcardUI(pairs); typingDiv.innerHTML = `✅ Done! Updated to ${pairs.length} cards.`; }
-      else typingDiv.innerHTML = renderMarkdown(text);
+      if (pairs.length > 0) {
+        currentFlashcards = pairs;
+        renderFlashcardUI(pairs);
+        // Update cache with edited version
+        if (currentSubject && currentSubject.cache) {
+          currentSubject.cache["flashcards"] = text;
+          save();
+        }
+        typingDiv.innerHTML = `✅ Done! Updated to ${pairs.length} cards.`;
+      } else {
+        typingDiv.innerHTML = renderMarkdown(text);
+      }
     };
   } else {
     const currentData = currentQuizQuestions.map((q, i) =>
@@ -552,24 +568,26 @@ async function sendEditMessage() {
     formatPrompt = `Current quiz:\n${currentData}\n\nUser request: ${msg}\n\nRespond ONLY with the full updated set in this EXACT format:\n1. [Question]\nA. [option]\nB. [option]\nC. [option] (correct)\nD. [option]`;
     renderer = (text) => {
       const qs = parseQuiz(text);
-      if (qs.length > 0) { currentQuizQuestions = qs; renderQuizUI(qs); typingDiv.innerHTML = `✅ Done! Updated to ${qs.length} questions.`; }
-      else typingDiv.innerHTML = renderMarkdown(text);
+      if (qs.length > 0) {
+        currentQuizQuestions = qs;
+        renderQuizUI(qs);
+        // Update cache with edited version
+        if (currentSubject && currentSubject.cache) {
+          const key = lastBtnId === "practiceTestBtn" ? "practiceTest" : "quiz";
+          currentSubject.cache[key] = text;
+          save();
+        }
+        typingDiv.innerHTML = `✅ Done! Updated to ${qs.length} questions.`;
+      } else {
+        typingDiv.innerHTML = renderMarkdown(text);
+      }
     };
   }
 
   try {
     const editSystem = "You are a study assistant helping edit flashcards or quiz questions. Follow the exact format. Output ONLY the cards/questions, no preamble.";
-    const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ contents: [{ parts: [{ text: `${editSystem}\n\n${formatPrompt}` }] }] })
-      }
-    );
-    const data = await res.json();
-    const text = data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || "No response.";
-    renderer(text);
+    const result = await askAI(`${editSystem}\n\n${formatPrompt}`);
+    renderer(result);
   } catch (err) {
     typingDiv.innerHTML = "Error: " + err.message;
   }
@@ -671,7 +689,6 @@ function renderFlashcardUI(pairs) {
 
 function setupFCKeyboard() {
   document.onkeydown = (e) => {
-    // Never hijack keypresses when the user is typing in any input or textarea
     const tag = document.activeElement?.tagName;
     if (tag === "INPUT" || tag === "TEXTAREA") return;
     if (e.key === "ArrowRight") window.fcNext?.();
@@ -770,33 +787,6 @@ window.resetQuiz = () => renderQuizUI(currentQuizQuestions);
 // =========================
 // TOOL BUTTONS
 // =========================
-async function runTool(prompt, btnId, renderer) {
-  if (!currentSubject) { alert("Select a subject first."); return; }
-  if (!currentSubject.chunks.length) { alert("Upload study files first."); return; }
-  const btn = document.getElementById(btnId);
-  btn.disabled = true; btn.classList.add("loading");
-  document.getElementById("output").innerHTML = `<p style="opacity:0.5">⏳ Thinking...</p>`;
-  hideEditPanel();
-  const result = await askAI(prompt);
-  renderer ? renderer(result) : setOutput(result);
-  awardXP(10);
-  btn.disabled = false; btn.classList.remove("loading");
-}
-
-// runToolFull uses ALL chunks — for exhaustive generation tools
-async function runToolFull(prompt, btnId, renderer) {
-  if (!currentSubject) { alert("Select a subject first."); return; }
-  if (!currentSubject.chunks.length) { alert("Upload study files first."); return; }
-  const btn = document.getElementById(btnId);
-  btn.disabled = true; btn.classList.add("loading");
-  document.getElementById("output").innerHTML = `<p style="opacity:0.5">⏳ Generating from full material...</p>`;
-  hideEditPanel();
-  const result = await askAIFull(prompt);
-  renderer ? renderer(result) : setOutput(result);
-  awardXP(10);
-  btn.disabled = false; btn.classList.remove("loading");
-}
-
 document.getElementById("summarizeBtn").onclick = () => runTool(
   "Summarize all the key concepts and important points from this study material. Use headers, bold key terms, and bullet points.",
   "summarizeBtn"
@@ -963,10 +953,10 @@ themeBtn.onclick = () => {
 // RESET API KEY
 // =========================
 document.getElementById("resetKeyBtn")?.addEventListener("click", () => {
-  const newKey = prompt("Enter new Gemini API key:");
+  const newKey = prompt("Enter new Claude API key:");
   if (newKey && newKey.trim()) {
-    GEMINI_API_KEY = newKey.trim();
-    localStorage.setItem("gemini_api_key", GEMINI_API_KEY);
+    CLAUDE_API_KEY = newKey.trim();
+    localStorage.setItem("claude_api_key", CLAUDE_API_KEY);
     alert("API key updated!");
   }
 });
@@ -999,8 +989,3 @@ document.getElementById("startTimer").onclick = () => {
 };
 document.getElementById("pauseTimer").onclick = () => { clearInterval(timerInterval); timerRunning = false; };
 document.getElementById("resetTimer").onclick = () => { clearInterval(timerInterval); timerRunning = false; timerSeconds = 25 * 60; updateTimerDisplay(); };
-
-// =========================
-// INIT
-// =========================
-renderSubjects();
