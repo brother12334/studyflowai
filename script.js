@@ -1,20 +1,400 @@
 // =========================
-// CLAUDE API KEY
+// AUTH & SYNC SYSTEM
 // =========================
 
-let CLAUDE_API_KEY = localStorage.getItem("claude_api_key") || "";
+const AUTH_KEY  = "studyapp_auth";
+const SYNC_KEY  = "subjects_savedAt";
+let currentUser = null; // { username, apiKey }
+let syncTimeout = null;
 
-if (!CLAUDE_API_KEY) {
-  const key = prompt("Enter your Claude API Key:");
-  if (key && key.trim()) {
-    CLAUDE_API_KEY = key.trim();
-    localStorage.setItem("claude_api_key", CLAUDE_API_KEY);
-  } else {
-    alert("Claude API key required.");
+let CLAUDE_API_KEY = "";
+const CLAUDE_MODEL  = "claude-haiku-4-5-20251001";
+
+// =========================
+// CLOUD STORAGE HELPERS
+// =========================
+
+function hashUsername(username) {
+  let h = 0;
+  for (let i = 0; i < username.length; i++) {
+    h = Math.imul(31, h) + username.charCodeAt(i) | 0;
   }
+  return "studyflow_user_" + Math.abs(h).toString(36);
 }
 
-const CLAUDE_MODEL = "claude-haiku-4-5-20251001";
+async function cloudSave() {
+  if (!currentUser) return;
+  const key     = hashUsername(currentUser.username);
+  const payload = JSON.stringify({ username: currentUser.username, subjects, savedAt: Date.now() });
+  try {
+    await window.storage.set(key, payload, true);
+    localStorage.setItem(SYNC_KEY, Date.now().toString());
+  } catch (e) { console.warn("Cloud save failed:", e); }
+}
+
+async function cloudLoad(username) {
+  const key = hashUsername(username);
+  try {
+    const result = await window.storage.get(key, true);
+    if (result && result.value) return JSON.parse(result.value);
+  } catch (e) { console.warn("Cloud load failed:", e); }
+  return null;
+}
+
+function scheduleSyncSave() {
+  clearTimeout(syncTimeout);
+  syncTimeout = setTimeout(cloudSave, 1500);
+}
+
+// =========================
+// SAVE (local + cloud)
+// =========================
+function save() {
+  localStorage.setItem("subjects", JSON.stringify(subjects));
+  scheduleSyncSave();
+}
+
+// =========================
+// TOAST
+// =========================
+function showToast(msg, color) {
+  const existing = document.getElementById("syncToast");
+  if (existing) existing.remove();
+  const toast = document.createElement("div");
+  toast.id = "syncToast";
+  toast.textContent = msg;
+  toast.style.cssText = `
+    position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(10px);
+    background:#111;border:1px solid ${color||"rgba(255,255,255,0.15)"};
+    color:${color ? "#fff" : "#ccc"};padding:10px 22px;border-radius:12px;
+    font-size:0.88rem;font-family:inherit;box-shadow:0 8px 32px rgba(0,0,0,0.5);
+    z-index:99999;opacity:0;transition:opacity 0.3s,transform 0.3s;pointer-events:none;
+  `;
+  document.body.appendChild(toast);
+  requestAnimationFrame(() => {
+    toast.style.opacity = "1";
+    toast.style.transform = "translateX(-50%) translateY(0)";
+  });
+  setTimeout(() => {
+    toast.style.opacity = "0";
+    toast.style.transform = "translateX(-50%) translateY(10px)";
+    setTimeout(() => toast.remove(), 300);
+  }, 3000);
+}
+
+// =========================
+// LOGIN SCREEN
+// =========================
+function showLoginScreen() {
+  // Hide the main app while logging in
+  const app = document.querySelector(".app");
+  if (app) app.style.display = "none";
+
+  const existing = document.getElementById("loginOverlay");
+  if (existing) existing.remove();
+
+  const overlay = document.createElement("div");
+  overlay.id = "loginOverlay";
+  overlay.style.cssText = `
+    position:fixed;inset:0;z-index:99998;
+    display:flex;align-items:center;justify-content:center;
+    background:#000;font-family:'Inter',sans-serif;
+  `;
+  overlay.innerHTML = `
+    <div style="
+      width:100%;max-width:440px;padding:48px 40px;
+      background:#0d0d0d;border-radius:20px;
+      border:1px solid rgba(255,255,255,0.09);
+      box-shadow:0 32px 80px rgba(0,0,0,0.7);
+    ">
+      <div style="text-align:center;margin-bottom:36px;">
+        <div style="font-size:2.5rem;margin-bottom:14px;">📚</div>
+        <h1 style="color:#f0f0f0;font-size:1.6rem;font-weight:700;margin:0 0 8px;font-family:'Sora',sans-serif;">StudyFlow AI</h1>
+        <p style="color:#555;font-size:0.88rem;margin:0;">Sign in to sync your subjects across devices</p>
+      </div>
+
+      <div id="loginError" style="
+        display:none;background:rgba(248,113,113,0.1);
+        border:1px solid rgba(248,113,113,0.3);color:#f87171;
+        padding:10px 14px;border-radius:10px;font-size:0.85rem;margin-bottom:18px;
+      "></div>
+
+      <div style="margin-bottom:16px;">
+        <label style="display:block;color:#666;font-size:0.75rem;margin-bottom:7px;font-weight:600;letter-spacing:0.06em;text-transform:uppercase;">Username</label>
+        <input id="loginUsername" type="text" placeholder="e.g. alexsmith" autocomplete="username"
+          style="width:100%;box-sizing:border-box;padding:12px 16px;background:#161616;
+          border:1px solid rgba(255,255,255,0.09);border-radius:10px;color:#f0f0f0;
+          font-size:0.95rem;outline:none;font-family:inherit;transition:border-color 0.2s;">
+      </div>
+
+      <div style="margin-bottom:28px;">
+        <label style="display:block;color:#666;font-size:0.75rem;margin-bottom:7px;font-weight:600;letter-spacing:0.06em;text-transform:uppercase;">Claude API Key</label>
+        <div style="position:relative;">
+          <input id="loginApiKey" type="password" placeholder="sk-ant-..." autocomplete="off"
+            style="width:100%;box-sizing:border-box;padding:12px 44px 12px 16px;background:#161616;
+            border:1px solid rgba(255,255,255,0.09);border-radius:10px;color:#f0f0f0;
+            font-size:0.95rem;outline:none;font-family:inherit;transition:border-color 0.2s;">
+          <button id="eyeToggle" style="
+            position:absolute;right:12px;top:50%;transform:translateY(-50%);
+            background:none;border:none;color:#555;cursor:pointer;font-size:15px;padding:4px;
+          ">👁</button>
+        </div>
+        <p style="color:#444;font-size:0.76rem;margin:8px 0 0;line-height:1.5;">
+          Your key is saved <strong style="color:#666">only on this device</strong>. Your subjects sync by username — use the same username on any device.
+        </p>
+      </div>
+
+      <button id="loginSubmitBtn" style="
+        width:100%;padding:13px;background:#fff;border:none;border-radius:10px;
+        color:#000;font-size:0.95rem;font-weight:700;cursor:pointer;
+        font-family:inherit;letter-spacing:0.02em;transition:opacity 0.2s,transform 0.1s;
+      ">Sign In / Create Account</button>
+
+      <p style="text-align:center;color:#333;font-size:0.76rem;margin:20px 0 0;line-height:1.6;">
+        New username = new account &nbsp;·&nbsp; Same username on any device = your data loads automatically
+      </p>
+    </div>
+  `;
+
+  document.body.appendChild(overlay);
+
+  // Focus handling
+  const unEl   = overlay.querySelector("#loginUsername");
+  const keyEl  = overlay.querySelector("#loginApiKey");
+  const eyeBtn = overlay.querySelector("#eyeToggle");
+  const btn    = overlay.querySelector("#loginSubmitBtn");
+
+  unEl.addEventListener("focus",  () => { unEl.style.borderColor  = "rgba(255,255,255,0.3)"; });
+  unEl.addEventListener("blur",   () => { unEl.style.borderColor  = "rgba(255,255,255,0.09)"; });
+  keyEl.addEventListener("focus", () => { keyEl.style.borderColor = "rgba(255,255,255,0.3)"; });
+  keyEl.addEventListener("blur",  () => { keyEl.style.borderColor = "rgba(255,255,255,0.09)"; });
+  eyeBtn.onclick = () => { keyEl.type = keyEl.type === "password" ? "text" : "password"; };
+
+  unEl.addEventListener("keydown",  e => { if (e.key === "Enter") keyEl.focus(); });
+  keyEl.addEventListener("keydown", e => { if (e.key === "Enter") doLogin(); });
+  btn.onclick = doLogin;
+}
+
+function showLoginError(msg) {
+  const el = document.getElementById("loginError");
+  if (!el) return;
+  el.textContent = msg;
+  el.style.display = "block";
+}
+
+async function doLogin() {
+  const username = document.getElementById("loginUsername").value.trim().toLowerCase().replace(/\s+/g, "");
+  const apiKey   = document.getElementById("loginApiKey").value.trim();
+  const btn      = document.getElementById("loginSubmitBtn");
+
+  if (!username || username.length < 2) {
+    showLoginError("Please enter a username (at least 2 characters)."); return;
+  }
+  if (!apiKey || !apiKey.startsWith("sk-")) {
+    showLoginError("Please enter a valid Claude API key (starts with sk-)."); return;
+  }
+
+  btn.textContent = "Validating key...";
+  btn.style.opacity = "0.7";
+  btn.disabled = true;
+
+  // Validate key with a minimal test call
+  try {
+    const testRes = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": apiKey,
+        "anthropic-version": "2023-06-01",
+        "anthropic-dangerous-direct-browser-access": "true"
+      },
+      body: JSON.stringify({
+        model: CLAUDE_MODEL,
+        max_tokens: 5,
+        messages: [{ role: "user", content: "hi" }]
+      })
+    });
+    if (!testRes.ok) {
+      const errData = await testRes.json().catch(() => ({}));
+      showLoginError("API key rejected: " + (errData?.error?.message || "Invalid key."));
+      btn.textContent = "Sign In / Create Account";
+      btn.style.opacity = "1";
+      btn.disabled = false;
+      return;
+    }
+  } catch (e) {
+    showLoginError("Network error checking key. Check your internet connection.");
+    btn.textContent = "Sign In / Create Account";
+    btn.style.opacity = "1";
+    btn.disabled = false;
+    return;
+  }
+
+  // Key is valid — save auth
+  currentUser      = { username, apiKey };
+  CLAUDE_API_KEY   = apiKey;
+  localStorage.setItem(AUTH_KEY, JSON.stringify(currentUser));
+
+  // Try to load cloud data
+  btn.textContent = "Loading your data...";
+  const cloudData = await cloudLoad(username);
+
+  if (cloudData && Array.isArray(cloudData.subjects) && cloudData.subjects.length > 0) {
+    subjects = cloudData.subjects;
+    localStorage.setItem("subjects", JSON.stringify(subjects));
+    document.getElementById("loginOverlay").remove();
+    revealApp();
+    renderSubjects();
+    showToast(`✅ Loaded ${subjects.length} subject${subjects.length !== 1 ? "s" : ""} from your account`);
+  } else {
+    // New account
+    subjects = JSON.parse(localStorage.getItem("subjects")) || [];
+    document.getElementById("loginOverlay").remove();
+    revealApp();
+    renderSubjects();
+    if (subjects.length === 0) showToast("👋 Welcome! Create your first subject to get started.");
+  }
+
+  addUserBadge(username);
+}
+
+function revealApp() {
+  const app = document.querySelector(".app");
+  if (app) app.style.display = "";
+}
+
+// =========================
+// USER BADGE
+// =========================
+function addUserBadge(username) {
+  const existing = document.getElementById("userBadgeWrap");
+  if (existing) existing.remove();
+
+  const sidebar = document.querySelector(".sidebar-bottom");
+  if (!sidebar) return;
+
+  const wrap = document.createElement("div");
+  wrap.id = "userBadgeWrap";
+  wrap.style.cssText = "position:relative;margin-bottom:8px;";
+
+  wrap.innerHTML = `
+    <button id="userBadgeBtn" style="
+      width:100%;display:flex;align-items:center;gap:10px;
+      padding:9px 14px;background:rgba(255,255,255,0.05);
+      border:1px solid rgba(255,255,255,0.1);border-radius:10px;
+      color:#ccc;font-size:0.84rem;font-family:inherit;cursor:pointer;
+      transition:background 0.2s;text-align:left;
+    ">
+      <span style="font-size:1rem;">👤</span>
+      <span style="flex:1;font-weight:500;">@${username}</span>
+      <span style="color:#444;font-size:0.7rem;">▾</span>
+    </button>
+    <div id="userDropdown" style="
+      display:none;position:absolute;bottom:calc(100% + 6px);left:0;right:0;
+      background:#111;border:1px solid rgba(255,255,255,0.1);
+      border-radius:12px;padding:6px;z-index:9999;
+      box-shadow:0 -8px 32px rgba(0,0,0,0.6);
+    ">
+      <div style="padding:8px 12px 10px;border-bottom:1px solid rgba(255,255,255,0.07);margin-bottom:4px;">
+        <div style="color:#f0f0f0;font-weight:600;font-size:0.88rem;">@${username}</div>
+        <div style="color:#444;font-size:0.75rem;margin-top:2px;">☁️ Synced across devices</div>
+      </div>
+      <button class="udd-btn" id="uddUpdateKey">🔑  Update API Key</button>
+      <button class="udd-btn" id="uddSync">☁️  Force Sync Now</button>
+      <button class="udd-btn" id="uddLogout" style="color:#f87171;">↩  Sign Out</button>
+    </div>
+  `;
+
+  // Inject dropdown button styles
+  if (!document.getElementById("uddStyles")) {
+    const s = document.createElement("style");
+    s.id = "uddStyles";
+    s.textContent = `.udd-btn{display:block;width:100%;text-align:left;padding:8px 12px;background:none;border:none;color:#aaa;font-size:0.84rem;font-family:inherit;cursor:pointer;border-radius:8px;transition:background 0.15s;}.udd-btn:hover{background:rgba(255,255,255,0.06);}`;
+    document.head.appendChild(s);
+  }
+
+  sidebar.insertBefore(wrap, sidebar.firstChild);
+
+  const badgeBtn  = wrap.querySelector("#userBadgeBtn");
+  const dropdown  = wrap.querySelector("#userDropdown");
+
+  badgeBtn.onclick = (e) => {
+    e.stopPropagation();
+    dropdown.style.display = dropdown.style.display === "none" ? "block" : "none";
+  };
+  document.addEventListener("click", () => { dropdown.style.display = "none"; });
+
+  wrap.querySelector("#uddUpdateKey").onclick = () => {
+    dropdown.style.display = "none";
+    const newKey = prompt("Enter your new Claude API key:");
+    if (!newKey || !newKey.trim()) return;
+    if (!newKey.trim().startsWith("sk-")) { alert("That doesn't look like a valid key (should start with sk-)."); return; }
+    currentUser.apiKey = newKey.trim();
+    CLAUDE_API_KEY      = newKey.trim();
+    localStorage.setItem(AUTH_KEY, JSON.stringify(currentUser));
+    showToast("✅ API key updated on this device");
+  };
+
+  wrap.querySelector("#uddSync").onclick = async () => {
+    dropdown.style.display = "none";
+    await cloudSave();
+    showToast("☁️ Synced to cloud");
+  };
+
+  wrap.querySelector("#uddLogout").onclick = () => {
+    dropdown.style.display = "none";
+    if (!confirm("Sign out? Your data is saved to the cloud.")) return;
+    localStorage.removeItem(AUTH_KEY);
+    currentUser    = null;
+    CLAUDE_API_KEY = "";
+    subjects       = [];
+    currentSubject = null;
+    const app = document.querySelector(".app");
+    if (app) app.style.display = "none";
+    showLoginScreen();
+  };
+}
+
+// =========================
+// BOOT — check saved auth
+// =========================
+(async function boot() {
+  // Hide app until logged in
+  const app = document.querySelector(".app");
+  if (app) app.style.display = "none";
+
+  const saved = localStorage.getItem(AUTH_KEY);
+  if (saved) {
+    try {
+      const auth = JSON.parse(saved);
+      if (auth.username && auth.apiKey) {
+        currentUser    = auth;
+        CLAUDE_API_KEY = auth.apiKey;
+        subjects       = JSON.parse(localStorage.getItem("subjects")) || [];
+
+        // Background sync: pull cloud if newer
+        const cloudData = await cloudLoad(auth.username);
+        if (cloudData && Array.isArray(cloudData.subjects)) {
+          const cloudTime = cloudData.savedAt || 0;
+          const localTime = parseInt(localStorage.getItem(SYNC_KEY) || "0");
+          if (cloudTime > localTime) {
+            subjects = cloudData.subjects;
+            localStorage.setItem("subjects", JSON.stringify(subjects));
+            localStorage.setItem(SYNC_KEY, cloudTime.toString());
+            showToast("☁️ Synced latest data from cloud");
+          }
+        }
+
+        revealApp();
+        renderSubjects();
+        addUserBadge(auth.username);
+        return;
+      }
+    } catch (e) { /* bad saved data — fall through to login */ }
+  }
+
+  showLoginScreen();
+})();
 
 // =========================
 // STATE
@@ -35,13 +415,13 @@ let activeTool           = null;
 // FLASHCARD STUDY SESSION STATE
 // =========================
 let fcSession = {
-  allCards:   [],
-  queue:      [],
-  unknown:    [],
-  known:      [],
-  roundIndex:  0,
-  roundNumber: 1,
-  retest:     false
+  allCards:    [],
+  queue:       [],
+  unknown:     [],
+  known:       [],
+  roundIndex:   0,
+  roundNumber:  1,
+  retest:      false
 };
 
 // =========================
@@ -68,13 +448,6 @@ const TOOL_NAMES = {
   practiceTestBtn: "Practice Test",
   weaknessBtn:     "Weak Spots"
 };
-
-// =========================
-// SAVE
-// =========================
-function save() {
-  localStorage.setItem("subjects", JSON.stringify(subjects));
-}
 
 // =========================
 // SUBJECT CREATION
@@ -155,14 +528,14 @@ function deleteSubject(id) {
   subjects = subjects.filter(s => s.id !== id);
   if (currentSubject?.id === id) {
     currentSubject = null;
-    activeTool = null;
-    document.getElementById("subjectTitle").innerText = "Select a Subject";
+    activeTool     = null;
+    document.getElementById("subjectTitle").innerText    = "Select a Subject";
     document.getElementById("subjectSubtitle").innerText = "Upload study guides to begin.";
-    document.getElementById("fileList").innerHTML = "";
-    document.getElementById("chatMessages").innerHTML = "";
-    document.getElementById("output").innerHTML = "";
-    document.getElementById("xp").innerText = "0";
-    document.getElementById("level").innerText = "1";
+    document.getElementById("fileList").innerHTML        = "";
+    document.getElementById("chatMessages").innerHTML    = "";
+    document.getElementById("output").innerHTML          = "";
+    document.getElementById("xp").innerText             = "0";
+    document.getElementById("level").innerText          = "1";
     hideEditPanel();
     hideCacheBar();
   }
@@ -177,11 +550,11 @@ function loadSubject(id) {
   currentSubject = subjects.find(s => s.id === id);
   if (!currentSubject.cache) currentSubject.cache = {};
   activeTool = null;
-  document.getElementById("subjectTitle").innerText = currentSubject.name;
+  document.getElementById("subjectTitle").innerText    = currentSubject.name;
   document.getElementById("subjectSubtitle").innerText = `${currentSubject.files.length} file(s) uploaded`;
-  document.getElementById("xp").innerText = currentSubject.xp || 0;
-  document.getElementById("level").innerText = currentSubject.level || 1;
-  document.getElementById("output").innerHTML = "";
+  document.getElementById("xp").innerText             = currentSubject.xp || 0;
+  document.getElementById("level").innerText          = currentSubject.level || 1;
+  document.getElementById("output").innerHTML         = "";
   renderFiles();
   renderChat();
   renderSubjects();
@@ -226,10 +599,10 @@ async function extractText(file) {
   if (file.type === "application/pdf") {
     try {
       const buffer = await file.arrayBuffer();
-      const pdf = await pdfjsLib.getDocument({ data: buffer }).promise;
-      let text = "";
+      const pdf    = await pdfjsLib.getDocument({ data: buffer }).promise;
+      let text     = "";
       for (let i = 1; i <= pdf.numPages; i++) {
-        const page = await pdf.getPage(i);
+        const page    = await pdf.getPage(i);
         const content = await page.getTextContent();
         text += "\n" + content.items.map(i => i.str).join(" ");
       }
@@ -271,19 +644,19 @@ function getRelevantChunks(question) {
       return { ...c, score };
     })
     .sort((a, b) => b.score - a.score)
-    .slice(0, 15); // increased from 6
+    .slice(0, 15);
 }
 
 function getAllChunksContext() {
   if (!currentSubject || !currentSubject.chunks.length) return "";
   const MAX_CHARS = 80000;
-  const byFile = {};
+  const byFile    = {};
   for (const chunk of currentSubject.chunks) {
     const src = chunk.source || "unknown";
     if (!byFile[src]) byFile[src] = [];
     byFile[src].push(chunk);
   }
-  const files = Object.keys(byFile);
+  const files       = Object.keys(byFile);
   const charsPerFile = Math.floor(MAX_CHARS / files.length);
   const parts = files.map(src => {
     let text = "";
@@ -304,7 +677,7 @@ function looksComplete(text) {
   return /[.!?\n]$/.test(trimmed) ||
          trimmed.endsWith("</ul>") ||
          trimmed.endsWith("</p>") ||
-         /^A[:)].+$/m.test(trimmed); // ends with a flashcard answer
+         /^A[:)].+$/m.test(trimmed);
 }
 
 // =========================
@@ -312,97 +685,49 @@ function looksComplete(text) {
 // =========================
 async function continueIfCutOff(result, originalContext, taskPrompt, systemPrompt) {
   if (looksComplete(result)) return result;
-
-  const userWantsContinue = confirm(
-    "⚠️ The response looks like it may have been cut off.\n\nClick OK to continue generating the rest, or Cancel to keep what you have."
-  );
-
+  const userWantsContinue = confirm("⚠️ The response looks like it may have been cut off.\n\nClick OK to continue generating the rest, or Cancel to keep what you have.");
   if (!userWantsContinue) return result;
-
-  document.getElementById("output").innerHTML =
-    `<p style="opacity:0.5">⏳ Continuing generation...</p>`;
-
+  document.getElementById("output").innerHTML = `<p style="opacity:0.5">⏳ Continuing generation...</p>`;
   let fullResult = result;
-  let attempts = 0;
+  let attempts   = 0;
   const MAX_CONTINUES = 4;
-
   while (!looksComplete(fullResult) && attempts < MAX_CONTINUES) {
     try {
       const contRes = await fetch("https://api.anthropic.com/v1/messages", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-api-key": CLAUDE_API_KEY,
-          "anthropic-version": "2023-06-01",
-          "anthropic-dangerous-direct-browser-access": "true"
-        },
-        body: JSON.stringify({
-          model: CLAUDE_MODEL,
-          max_tokens: 4000,
-          system: systemPrompt || "You are a study assistant. Continue exactly where the previous output left off. Do not repeat anything already written.",
-          messages: [
-            {
-              role: "user",
-              content: `SUBJECT: ${currentSubject.name}\n\nCONTEXT:\n${originalContext}\n\nTASK: ${taskPrompt}\n\nCONTINUE FROM HERE (do not repeat, just continue):\n${fullResult}`
-            }
-          ]
-        })
+        headers: { "Content-Type": "application/json", "x-api-key": CLAUDE_API_KEY, "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true" },
+        body: JSON.stringify({ model: CLAUDE_MODEL, max_tokens: 4000, system: systemPrompt || "You are a study assistant. Continue exactly where the previous output left off. Do not repeat anything already written.", messages: [{ role: "user", content: `SUBJECT: ${currentSubject.name}\n\nCONTEXT:\n${originalContext}\n\nTASK: ${taskPrompt}\n\nCONTINUE FROM HERE (do not repeat, just continue):\n${fullResult}` }] })
       });
-
       const contData = await contRes.json();
       if (!contRes.ok) break;
-
       const continuation = contData?.content?.[0]?.text?.trim() || "";
       if (!continuation) break;
-
       fullResult += "\n" + continuation;
       attempts++;
-
       if (looksComplete(fullResult)) break;
-
       if (attempts < MAX_CONTINUES) {
-        const keepGoing = confirm(
-          `⚠️ Still looks incomplete. Continue again? (${MAX_CONTINUES - attempts} attempt${MAX_CONTINUES - attempts !== 1 ? "s" : ""} remaining)`
-        );
+        const keepGoing = confirm(`⚠️ Still looks incomplete. Continue again? (${MAX_CONTINUES - attempts} attempt${MAX_CONTINUES - attempts !== 1 ? "s" : ""} remaining)`);
         if (!keepGoing) break;
       }
-    } catch (err) {
-      console.error("Continue error:", err);
-      break;
-    }
+    } catch (err) { console.error("Continue error:", err); break; }
   }
-
   return fullResult;
 }
 
 // =========================
-// MAP-REDUCE AI (full material, batched)
+// MAP-REDUCE AI
 // =========================
 async function mapReduceAI(taskPrompt, systemPrompt) {
-  const context = getAllChunksContext();
-  const BATCH_SIZE = 6000; // chars per batch
-  const batches = [];
+  const context    = getAllChunksContext();
+  const BATCH_SIZE = 6000;
+  const batches    = [];
+  for (let i = 0; i < context.length; i += BATCH_SIZE) batches.push(context.slice(i, i + BATCH_SIZE));
 
-  for (let i = 0; i < context.length; i += BATCH_SIZE) {
-    batches.push(context.slice(i, i + BATCH_SIZE));
-  }
-
-  // Single batch — skip map-reduce overhead
   if (batches.length === 1) {
     const res = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": CLAUDE_API_KEY,
-        "anthropic-version": "2023-06-01",
-        "anthropic-dangerous-direct-browser-access": "true"
-      },
-      body: JSON.stringify({
-        model: CLAUDE_MODEL,
-        max_tokens: 4000,
-        system: systemPrompt || "You are a study assistant. Use ONLY the provided material. Be complete and accurate.",
-        messages: [{ role: "user", content: `SUBJECT: ${currentSubject.name}\n\nSTUDY MATERIAL:\n${batches[0]}\n\nTASK:\n${taskPrompt}` }]
-      })
+      headers: { "Content-Type": "application/json", "x-api-key": CLAUDE_API_KEY, "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true" },
+      body: JSON.stringify({ model: CLAUDE_MODEL, max_tokens: 4000, system: systemPrompt || "You are a study assistant. Use ONLY the provided material. Be complete and accurate.", messages: [{ role: "user", content: `SUBJECT: ${currentSubject.name}\n\nSTUDY MATERIAL:\n${batches[0]}\n\nTASK:\n${taskPrompt}` }] })
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data?.error?.message || "API error");
@@ -411,141 +736,71 @@ async function mapReduceAI(taskPrompt, systemPrompt) {
     return result;
   }
 
-  // MAP phase — extract key content from each batch
   let partialResults = [];
   for (let i = 0; i < batches.length; i++) {
-    document.getElementById("output").innerHTML =
-      `<p style="opacity:0.5">⏳ Processing section ${i + 1} of ${batches.length}...</p>`;
-
+    document.getElementById("output").innerHTML = `<p style="opacity:0.5">⏳ Processing section ${i + 1} of ${batches.length}...</p>`;
     const res = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": CLAUDE_API_KEY,
-        "anthropic-version": "2023-06-01",
-        "anthropic-dangerous-direct-browser-access": "true"
-      },
-      body: JSON.stringify({
-        model: CLAUDE_MODEL,
-        max_tokens: 1500,
-        system: "You are a study assistant. Extract and preserve ALL key facts, terms, definitions, dates, formulas, and concepts from this material section. Be thorough — nothing important should be lost.",
-        messages: [{
-          role: "user",
-          content: `SUBJECT: ${currentSubject.name}\n\nMATERIAL SECTION ${i + 1} of ${batches.length}:\n${batches[i]}\n\nTASK: ${taskPrompt}`
-        }]
-      })
+      headers: { "Content-Type": "application/json", "x-api-key": CLAUDE_API_KEY, "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true" },
+      body: JSON.stringify({ model: CLAUDE_MODEL, max_tokens: 1500, system: "You are a study assistant. Extract and preserve ALL key facts, terms, definitions, dates, formulas, and concepts from this material section. Be thorough.", messages: [{ role: "user", content: `SUBJECT: ${currentSubject.name}\n\nMATERIAL SECTION ${i + 1} of ${batches.length}:\n${batches[i]}\n\nTASK: ${taskPrompt}` }] })
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data?.error?.message || "API error");
     partialResults.push(data?.content?.[0]?.text?.trim() || "");
   }
 
-  // REDUCE phase — combine all partial results into final output
-  document.getElementById("output").innerHTML =
-    `<p style="opacity:0.5">⏳ Combining all sections into final output...</p>`;
-
-  const combined = partialResults
-    .map((r, i) => `--- Section ${i + 1} ---\n${r}`)
-    .join("\n\n");
-
-  const reduceRes = await fetch("https://api.anthropic.com/v1/messages", {
+  document.getElementById("output").innerHTML = `<p style="opacity:0.5">⏳ Combining all sections into final output...</p>`;
+  const combined   = partialResults.map((r, i) => `--- Section ${i + 1} ---\n${r}`).join("\n\n");
+  const reduceRes  = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-api-key": CLAUDE_API_KEY,
-      "anthropic-version": "2023-06-01",
-      "anthropic-dangerous-direct-browser-access": "true"
-    },
-    body: JSON.stringify({
-      model: CLAUDE_MODEL,
-      max_tokens: 4000,
-      system: systemPrompt || "You are a study assistant. Combine the section results into one complete, well-organized final output. Do not lose any facts or cards.",
-      messages: [{
-        role: "user",
-        content: `SUBJECT: ${currentSubject.name}\n\nSECTION RESULTS:\n${combined}\n\nFINAL TASK: ${taskPrompt}`
-      }]
-    })
+    headers: { "Content-Type": "application/json", "x-api-key": CLAUDE_API_KEY, "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true" },
+    body: JSON.stringify({ model: CLAUDE_MODEL, max_tokens: 4000, system: systemPrompt || "You are a study assistant. Combine the section results into one complete, well-organized final output. Do not lose any facts or cards.", messages: [{ role: "user", content: `SUBJECT: ${currentSubject.name}\n\nSECTION RESULTS:\n${combined}\n\nFINAL TASK: ${taskPrompt}` }] })
   });
-
   const reduceData = await reduceRes.json();
   if (!reduceRes.ok) throw new Error(reduceData?.error?.message || "API error");
-
   let result = reduceData?.content?.[0]?.text?.trim() || "";
-
-  // Cut-off check on final combined result
-  result = await continueIfCutOff(result, combined, taskPrompt, systemPrompt);
-
+  result     = await continueIfCutOff(result, combined, taskPrompt, systemPrompt);
   return result;
 }
 
 // =========================
-// CLAUDE API (FOCUSED — smart retrieval)
+// CLAUDE API — FOCUSED
 // =========================
 async function askAI(prompt, systemPrompt) {
   if (!currentSubject) return "Select a subject first.";
   if (!currentSubject.chunks.length) return "No study material uploaded yet. Add files first.";
 
-  const chunks = getRelevantChunks(prompt);
-  const context = chunks
-    .filter(c => c.text && c.text.length > 20)
-    .map(c => c.text.split(" ").slice(0, 300).join(" ")) // increased from 180
-    .join("\n\n");
-
-  const system = systemPrompt || `
-You are a focused study assistant.
-Only use the provided study material.
-If the answer is not in the material, say: "Not found in your study material."
-Be concise.
-`;
-
+  const chunks  = getRelevantChunks(prompt);
+  const context = chunks.filter(c => c.text && c.text.length > 20).map(c => c.text.split(" ").slice(0, 300).join(" ")).join("\n\n");
+  const system  = systemPrompt || `You are a focused study assistant.\nOnly use the provided study material.\nIf the answer is not in the material, say: "Not found in your study material."\nBe concise.`;
   const fullPrompt = `SUBJECT: ${currentSubject.name}\n\nSTUDY MATERIAL:\n${context}\n\nTASK:\n${prompt}`;
 
   try {
     const res = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": CLAUDE_API_KEY,
-        "anthropic-version": "2023-06-01",
-        "anthropic-dangerous-direct-browser-access": "true"
-      },
-      body: JSON.stringify({
-        model: CLAUDE_MODEL,
-        max_tokens: 2000, // increased from 500
-        system,
-        messages: [{ role: "user", content: fullPrompt }]
-      })
+      headers: { "Content-Type": "application/json", "x-api-key": CLAUDE_API_KEY, "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true" },
+      body: JSON.stringify({ model: CLAUDE_MODEL, max_tokens: 2000, system, messages: [{ role: "user", content: fullPrompt }] })
     });
     const data = await res.json();
     if (!res.ok) return `API Error: ${data?.error?.message || "Unknown error"}`;
-
     let result = data?.content?.[0]?.text?.trim() || "No response.";
-
-    // Cut-off detection
-    result = await continueIfCutOff(result, context, prompt, system);
-
+    result     = await continueIfCutOff(result, context, prompt, system);
     return result;
-  } catch (err) {
-    return `Network/API error: ${err.message}`;
-  }
+  } catch (err) { return `Network/API error: ${err.message}`; }
 }
 
 // =========================
-// CLAUDE API (FULL CONTEXT — map-reduce)
+// CLAUDE API — FULL CONTEXT
 // =========================
 async function askAIFull(prompt, systemPrompt) {
   if (!currentSubject) return "Select a subject first.";
   if (!currentSubject.chunks.length) return "No study material uploaded yet. Add files first.";
-
-  try {
-    return await mapReduceAI(prompt, systemPrompt);
-  } catch (err) {
-    return `Error: ${err.message}`;
-  }
+  try { return await mapReduceAI(prompt, systemPrompt); }
+  catch (err) { return `Error: ${err.message}`; }
 }
 
 // =========================
-// CACHE BAR (legacy stub)
+// CACHE BAR
 // =========================
 function hideCacheBar() {
   const bar = document.getElementById("cacheBar");
@@ -558,100 +813,55 @@ function hideCacheBar() {
 function showResultWithBar(btnId, renderer, value) {
   activeTool = btnId;
   hideCacheBar();
-
-  if (renderer) {
-    renderer(value);
-  } else {
-    setOutput(value);
-  }
-
+  if (renderer) renderer(value); else setOutput(value);
   const outputDiv = document.getElementById("output");
-  const existing = document.getElementById("inlineCacheBar");
+  const existing  = document.getElementById("inlineCacheBar");
   if (existing) existing.remove();
-
   const bar = document.createElement("div");
-  bar.id = "inlineCacheBar";
-  bar.style.cssText = `
-    display:flex; align-items:center; justify-content:space-between;
-    gap:12px; padding:10px 14px; margin-bottom:14px;
-    border-radius:10px; background:rgba(255,255,255,0.05);
-    border:1px solid rgba(255,255,255,0.1); font-size:0.83rem;
-    color:#888; flex-shrink:0;
-  `;
-  bar.innerHTML = `
-    <span>📌 Showing saved ${TOOL_NAMES[btnId] || "result"}</span>
-    <button id="inlineRegenBtn" style="
-      padding:5px 12px; border-radius:6px;
-      border:1px solid rgba(255,255,255,0.15);
-      background:transparent; color:inherit;
-      cursor:pointer; font-size:0.82rem;
-      white-space:nowrap; transition:background 0.2s;
-    ">🔄 Regenerate</button>
-  `;
-
+  bar.id    = "inlineCacheBar";
+  bar.style.cssText = `display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 14px;margin-bottom:14px;border-radius:10px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);font-size:0.83rem;color:#888;flex-shrink:0;`;
+  bar.innerHTML = `<span>📌 Showing saved ${TOOL_NAMES[btnId] || "result"}</span><button id="inlineRegenBtn" style="padding:5px 12px;border-radius:6px;border:1px solid rgba(255,255,255,0.15);background:transparent;color:inherit;cursor:pointer;font-size:0.82rem;white-space:nowrap;">🔄 Regenerate</button>`;
   outputDiv.insertBefore(bar, outputDiv.firstChild);
-
   document.getElementById("inlineRegenBtn").onclick = () => {
     if (!currentSubject) return;
     const cacheKey = CACHE_KEYS[btnId];
-    if (cacheKey && currentSubject.cache) {
-      delete currentSubject.cache[cacheKey];
-      save();
-    }
+    if (cacheKey && currentSubject.cache) { delete currentSubject.cache[cacheKey]; save(); }
     activeTool = null;
     document.getElementById(btnId)?.click();
   };
 }
 
 // =========================
-// TOOL RUNNER — focused context, with toggle
+// TOOL RUNNER — focused
 // =========================
 async function runTool(prompt, btnId, renderer) {
   if (!currentSubject) { alert("Select a subject first."); return; }
   if (!currentSubject.chunks.length) { alert("Upload study files first."); return; }
   if (!currentSubject.cache) currentSubject.cache = {};
-
   const cacheKey = CACHE_KEYS[btnId];
-  lastBtnId = btnId;
-
-  if (cacheKey && currentSubject.cache[cacheKey]) {
-    hideEditPanel();
-    showResultWithBar(btnId, renderer, currentSubject.cache[cacheKey]);
-    return;
-  }
-
-  activeTool = btnId;
-  const btn = document.getElementById(btnId);
-  btn.disabled = true;
-  btn.classList.add("loading");
+  lastBtnId      = btnId;
+  if (cacheKey && currentSubject.cache[cacheKey]) { hideEditPanel(); showResultWithBar(btnId, renderer, currentSubject.cache[cacheKey]); return; }
+  activeTool     = btnId;
+  const btn      = document.getElementById(btnId);
+  btn.disabled   = true; btn.classList.add("loading");
   document.getElementById("output").innerHTML = `<p style="opacity:0.5">⏳ Thinking...</p>`;
-  hideEditPanel();
-  hideCacheBar();
-
-  const result = await askAI(prompt);
-
-  if (cacheKey) {
-    currentSubject.cache[cacheKey] = result;
-    save();
-  }
-
+  hideEditPanel(); hideCacheBar();
+  const result   = await askAI(prompt);
+  if (cacheKey) { currentSubject.cache[cacheKey] = result; save(); }
   showResultWithBar(btnId, renderer, result);
   awardXP(10);
-  btn.disabled = false;
-  btn.classList.remove("loading");
+  btn.disabled   = false; btn.classList.remove("loading");
 }
 
 // =========================
-// TOOL RUNNER FULL — full context (map-reduce), with toggle
+// TOOL RUNNER FULL — map-reduce
 // =========================
 async function runToolFull(prompt, btnId, renderer) {
   if (!currentSubject) { alert("Select a subject first."); return; }
   if (!currentSubject.chunks.length) { alert("Upload study files first."); return; }
   if (!currentSubject.cache) currentSubject.cache = {};
-
   const cacheKey = CACHE_KEYS[btnId];
-  lastBtnId = btnId;
-
+  lastBtnId      = btnId;
   if (cacheKey && currentSubject.cache[cacheKey]) {
     hideEditPanel();
     showResultWithBar(btnId, renderer, currentSubject.cache[cacheKey]);
@@ -659,26 +869,16 @@ async function runToolFull(prompt, btnId, renderer) {
     else if (btnId === "quizBtn" || btnId === "practiceTestBtn") showEditPanel("quiz");
     return;
   }
-
-  activeTool = btnId;
-  const btn = document.getElementById(btnId);
-  btn.disabled = true;
-  btn.classList.add("loading");
+  activeTool   = btnId;
+  const btn    = document.getElementById(btnId);
+  btn.disabled = true; btn.classList.add("loading");
   document.getElementById("output").innerHTML = `<p style="opacity:0.5">⏳ Generating from full material...</p>`;
-  hideEditPanel();
-  hideCacheBar();
-
+  hideEditPanel(); hideCacheBar();
   const result = await askAIFull(prompt);
-
-  if (cacheKey) {
-    currentSubject.cache[cacheKey] = result;
-    save();
-  }
-
+  if (cacheKey) { currentSubject.cache[cacheKey] = result; save(); }
   showResultWithBar(btnId, renderer, result);
   awardXP(10);
-  btn.disabled = false;
-  btn.classList.remove("loading");
+  btn.disabled = false; btn.classList.remove("loading");
 }
 
 // =========================
@@ -688,13 +888,13 @@ function renderMarkdown(text) {
   text = text.replace(/<think>[\s\S]*?<\/think>/gi, "").trim();
   return text
     .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
-    .replace(/\*(.+?)\*/g, "<em>$1</em>")
-    .replace(/^### (.+)$/gm, "<h4>$1</h4>")
-    .replace(/^## (.+)$/gm, "<h3>$1</h3>")
-    .replace(/^# (.+)$/gm, "<h2>$1</h2>")
-    .replace(/^[-•] (.+)$/gm, "<li>$1</li>")
-    .replace(/(<li>.*<\/li>)/gs, "<ul>$1</ul>")
-    .replace(/\n{2,}/g, "</p><p>")
+    .replace(/\*(.+?)\*/g,     "<em>$1</em>")
+    .replace(/^### (.+)$/gm,   "<h4>$1</h4>")
+    .replace(/^## (.+)$/gm,    "<h3>$1</h3>")
+    .replace(/^# (.+)$/gm,     "<h2>$1</h2>")
+    .replace(/^[-•] (.+)$/gm,  "<li>$1</li>")
+    .replace(/(<li>.*<\/li>)/gs,"<ul>$1</ul>")
+    .replace(/\n{2,}/g,        "</p><p>")
     .replace(/^(?!<[hulo])(.+)$/gm, (m) => m.trim() ? m : "")
     .replace(/\n/g, "<br>");
 }
@@ -714,8 +914,8 @@ function showEditPanel(mode) {
     : "✏️ Edit Quiz — Ask AI to modify your questions";
   panel.style.display = "block";
   document.getElementById("editMessages").innerHTML = "";
-  document.getElementById("editInput").value = "";
-  document.getElementById("editInput").placeholder = mode === "flashcard"
+  document.getElementById("editInput").value        = "";
+  document.getElementById("editInput").placeholder  = mode === "flashcard"
     ? 'e.g. "Add 5 more cards" or "Make the questions harder"'
     : 'e.g. "Add 3 more questions" or "Change Q2 to ask about photosynthesis"';
   panel.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -726,13 +926,13 @@ function hideEditPanel() {
   currentMode = null;
 }
 
-document.getElementById("editSendBtn").onclick = sendEditMessage;
+document.getElementById("editSendBtn").onclick  = sendEditMessage;
 document.getElementById("editInput").addEventListener("keydown", (e) => { if (e.key === "Enter") sendEditMessage(); });
 document.getElementById("editCloseBtn").onclick = hideEditPanel;
 
 async function sendEditMessage() {
   const input = document.getElementById("editInput");
-  const msg = input.value.trim();
+  const msg   = input.value.trim();
   if (!msg) return;
   addEditMessage(msg, "user");
   input.value = "";
@@ -741,20 +941,15 @@ async function sendEditMessage() {
 
   if (currentMode === "flashcard") {
     const currentData = currentFlashcards.map((c, i) => `Q${i+1}: ${c.q}\nA${i+1}: ${c.a}`).join("\n\n");
-    formatPrompt = `Current flashcards:\n${currentData}\n\nUser request: ${msg}\n\nRespond ONLY with the full updated set in this EXACT format:\nQ: [question]\nA: [answer]`;
+    formatPrompt      = `Current flashcards:\n${currentData}\n\nUser request: ${msg}\n\nRespond ONLY with the full updated set in this EXACT format:\nQ: [question]\nA: [answer]`;
     renderer = (text) => {
       const pairs = parseFlashcards(text);
       if (pairs.length > 0) {
         currentFlashcards = pairs;
         renderFlashcardUI(pairs);
-        if (currentSubject && currentSubject.cache) {
-          currentSubject.cache["flashcards"] = text;
-          save();
-        }
+        if (currentSubject?.cache) { currentSubject.cache["flashcards"] = text; save(); }
         typingDiv.innerHTML = `✅ Done! Updated to ${pairs.length} cards.`;
-      } else {
-        typingDiv.innerHTML = renderMarkdown(text);
-      }
+      } else { typingDiv.innerHTML = renderMarkdown(text); }
     };
   } else {
     const currentData = currentQuizQuestions.map((q, i) =>
@@ -766,25 +961,17 @@ async function sendEditMessage() {
       if (qs.length > 0) {
         currentQuizQuestions = qs;
         renderQuizUI(qs);
-        if (currentSubject && currentSubject.cache) {
-          const key = lastBtnId === "practiceTestBtn" ? "practiceTest" : "quiz";
-          currentSubject.cache[key] = text;
-          save();
-        }
+        if (currentSubject?.cache) { const key = lastBtnId === "practiceTestBtn" ? "practiceTest" : "quiz"; currentSubject.cache[key] = text; save(); }
         typingDiv.innerHTML = `✅ Done! Updated to ${qs.length} questions.`;
-      } else {
-        typingDiv.innerHTML = renderMarkdown(text);
-      }
+      } else { typingDiv.innerHTML = renderMarkdown(text); }
     };
   }
 
   try {
     const editSystem = "You are a study assistant helping edit flashcards or quiz questions. Follow the exact format. Output ONLY the cards/questions, no preamble.";
-    const result = await askAI(`${editSystem}\n\n${formatPrompt}`);
+    const result     = await askAI(`${editSystem}\n\n${formatPrompt}`);
     renderer(result);
-  } catch (err) {
-    typingDiv.innerHTML = "Error: " + err.message;
-  }
+  } catch (err) { typingDiv.innerHTML = "Error: " + err.message; }
 }
 
 function addEditMessage(text, type) {
@@ -811,9 +998,7 @@ function parseFlashcards(text) {
       currentQ = line.replace(/^Q[:)]\s*/i, ""); currentA = "";
     } else if (line.match(/^A[:)]/i)) {
       currentA = line.replace(/^A[:)]\s*/i, "");
-    } else if (currentA && line) {
-      currentA += " " + line;
-    }
+    } else if (currentA && line) { currentA += " " + line; }
   }
   if (currentQ && currentA) pairs.push({ q: currentQ, a: currentA });
   return pairs;
@@ -831,167 +1016,82 @@ function renderFlashcards(text) {
 }
 
 // =========================
-// FLASHCARD SESSION — SPACED REPETITION
+// FLASHCARD SESSION
 // =========================
 const RETEST_INTERVAL = 5;
 
 function startFlashcardSession(pairs) {
-  fcSession = {
-    allCards:    pairs.map((p, i) => ({ ...p, id: i })),
-    queue:       pairs.map((p, i) => ({ ...p, id: i })),
-    unknown:     [],
-    known:       [],
-    roundIndex:  0,
-    roundNumber: 1,
-    retest:      false
-  };
+  fcSession = { allCards: pairs.map((p, i) => ({ ...p, id: i })), queue: pairs.map((p, i) => ({ ...p, id: i })), unknown: [], known: [], roundIndex: 0, roundNumber: 1, retest: false };
   renderFCSession();
 }
 
 function renderFCSession() {
   const s = fcSession;
-
   if (s.known.length === s.allCards.length) {
     const pct = 100;
-    setOutput(`
-      <div class="fc-complete">
-        <div class="fc-complete-icon">🎉</div>
-        <h2 class="fc-complete-title">You nailed every card!</h2>
-        <p class="fc-complete-sub">All ${s.allCards.length} cards mastered across ${s.roundNumber} round${s.roundNumber !== 1 ? "s" : ""}.</p>
-        <div class="fc-score-bar-wrap"><div class="fc-score-bar" style="width:${pct}%"></div></div>
-        <button class="fc-restart-full-btn" onclick="startFlashcardSession(currentFlashcards)">↺ Study Again</button>
-      </div>
-    `, true);
-    confetti({ particleCount: 150, spread: 80, origin: { y: 0.6 } });
-    awardXP(20);
-    return;
+    setOutput(`<div class="fc-complete"><div class="fc-complete-icon">🎉</div><h2 class="fc-complete-title">You nailed every card!</h2><p class="fc-complete-sub">All ${s.allCards.length} cards mastered across ${s.roundNumber} round${s.roundNumber !== 1 ? "s" : ""}.</p><div class="fc-score-bar-wrap"><div class="fc-score-bar" style="width:${pct}%"></div></div><button class="fc-restart-full-btn" onclick="startFlashcardSession(currentFlashcards)">↺ Study Again</button></div>`, true);
+    confetti({ particleCount: 150, spread: 80, origin: { y: 0.6 } }); awardXP(20); return;
   }
-
   if (!s.retest && s.roundIndex > 0 && s.roundIndex % RETEST_INTERVAL === 0 && s.unknown.length > 0) {
-    s.retest = true;
-    s.retestQueue = shuffle([...s.unknown]);
-    s.retestIndex = 0;
-    s.unknown = [];
+    s.retest = true; s.retestQueue = shuffle([...s.unknown]); s.retestIndex = 0; s.unknown = [];
   }
-
   if (s.retest) {
-    if (s.retestIndex >= s.retestQueue.length) {
-      s.retest = false;
-      renderFCSession();
-      return;
-    }
-    const card = s.retestQueue[s.retestIndex];
-    renderFCCard(card, true);
-    return;
+    if (s.retestIndex >= s.retestQueue.length) { s.retest = false; renderFCSession(); return; }
+    renderFCCard(s.retestQueue[s.retestIndex], true); return;
   }
-
   if (s.roundIndex >= s.queue.length) {
-    if (s.unknown.length === 0) {
-      s.known = s.allCards;
-      renderFCSession();
-      return;
-    }
-    s.roundNumber++;
-    s.queue = shuffle([...s.unknown]);
-    s.unknown = [];
-    s.roundIndex = 0;
-    renderFCSession();
-    return;
+    if (s.unknown.length === 0) { s.known = s.allCards; renderFCSession(); return; }
+    s.roundNumber++; s.queue = shuffle([...s.unknown]); s.unknown = []; s.roundIndex = 0; renderFCSession(); return;
   }
-
-  const card = s.queue[s.roundIndex];
-  renderFCCard(card, false);
+  renderFCCard(s.queue[s.roundIndex], false);
 }
 
 function renderFCCard(card, isRetest) {
-  const s = fcSession;
+  const s            = fcSession;
   const masteredCount = s.known.length;
-  const totalCount = s.allCards.length;
-  const pct = Math.round((masteredCount / totalCount) * 100);
-
-  const pos   = isRetest ? s.retestIndex + 1 : s.roundIndex + 1;
-  const total = isRetest ? s.retestQueue.length : s.queue.length;
-  const retestBadge = isRetest ? `<span class="fc-retest-badge">🔁 Retest</span>` : "";
-  const roundLabel  = isRetest
-    ? `Reviewing ${s.retestQueue.length} card${s.retestQueue.length !== 1 ? "s" : ""} you missed`
-    : `Round ${s.roundNumber} · ${masteredCount}/${totalCount} mastered`;
-
+  const totalCount    = s.allCards.length;
+  const pct           = Math.round((masteredCount / totalCount) * 100);
+  const pos           = isRetest ? s.retestIndex + 1 : s.roundIndex + 1;
+  const total         = isRetest ? s.retestQueue.length : s.queue.length;
+  const retestBadge   = isRetest ? `<span class="fc-retest-badge">🔁 Retest</span>` : "";
+  const roundLabel    = isRetest ? `Reviewing ${s.retestQueue.length} card${s.retestQueue.length !== 1 ? "s" : ""} you missed` : `Round ${s.roundNumber} · ${masteredCount}/${totalCount} mastered`;
   const html = `
     <div class="fc-wrap">
       <div class="fc-top-bar">
-        <div class="fc-progress-bar">
-          <div class="fc-progress-fill" style="width:${pct}%"></div>
-        </div>
+        <div class="fc-progress-bar"><div class="fc-progress-fill" style="width:${pct}%"></div></div>
         <p class="fc-counter">${pos} / ${total} ${retestBadge}</p>
       </div>
       <p class="fc-round-label">${roundLabel}</p>
-
       <div class="fc-mastery-row">
         <span class="fc-chip fc-chip-known">✅ Known: ${masteredCount}</span>
         <span class="fc-chip fc-chip-unknown">❌ To learn: ${totalCount - masteredCount}</span>
       </div>
-
       <div class="fc-card" id="fcCard" onclick="fcFlip()">
         <div class="fc-inner" id="fcInner">
-          <div class="fc-front">
-            <span class="fc-side-label">Question</span>
-            <p class="fc-text">${card.q}</p>
-            <span class="fc-hint">Click to reveal answer</span>
-          </div>
-          <div class="fc-back">
-            <span class="fc-side-label">Answer</span>
-            <p class="fc-text">${card.a}</p>
-          </div>
+          <div class="fc-front"><span class="fc-side-label">Question</span><p class="fc-text">${card.q}</p><span class="fc-hint">Click to reveal answer</span></div>
+          <div class="fc-back"><span class="fc-side-label">Answer</span><p class="fc-text">${card.a}</p></div>
         </div>
       </div>
-
       <div class="fc-verdict" id="fcVerdict" style="display:none;">
-        <button class="fc-btn-unknown" onclick="fcMarkUnknown()" style="
-          display:inline-flex; align-items:center; gap:8px;
-          padding:14px 28px; border-radius:12px; border:2px solid rgba(248,113,113,0.4);
-          background:rgba(248,113,113,0.1); color:#f87171;
-          font-size:1rem; font-weight:600; cursor:pointer;
-          transition:all 0.2s; min-width:150px; justify-content:center;
-        ">
-          <span>😕</span> Don't Know It
-        </button>
-        <button class="fc-btn-known" onclick="fcMarkKnown()" style="
-          display:inline-flex; align-items:center; gap:8px;
-          padding:14px 28px; border-radius:12px; border:2px solid rgba(74,222,128,0.4);
-          background:rgba(74,222,128,0.1); color:#4ade80;
-          font-size:1rem; font-weight:600; cursor:pointer;
-          transition:all 0.2s; min-width:150px; justify-content:center;
-        ">
-          <span>💪</span> Know It!
-        </button>
+        <button class="fc-btn-unknown" onclick="fcMarkUnknown()" style="display:inline-flex;align-items:center;gap:8px;padding:14px 28px;border-radius:12px;border:2px solid rgba(248,113,113,0.4);background:rgba(248,113,113,0.1);color:#f87171;font-size:1rem;font-weight:600;cursor:pointer;min-width:150px;justify-content:center;"><span>😕</span> Don't Know It</button>
+        <button class="fc-btn-known"    onclick="fcMarkKnown()"    style="display:inline-flex;align-items:center;gap:8px;padding:14px 28px;border-radius:12px;border:2px solid rgba(74,222,128,0.4);background:rgba(74,222,128,0.1);color:#4ade80;font-size:1rem;font-weight:600;cursor:pointer;min-width:150px;justify-content:center;"><span>💪</span> Know It!</button>
       </div>
-
       <p class="fc-kb-hint">Space = flip &nbsp;·&nbsp; ← Don't know &nbsp;·&nbsp; → Know it</p>
-    </div>
-  `;
-
+    </div>`;
   setOutput(html, true);
   setupFCSessionKeyboard();
 }
 
-// Flip
 window.fcFlip = function() {
   const inner = document.getElementById("fcInner");
   if (!inner) return;
   const isFlipped = inner.classList.toggle("flipped");
   if (isFlipped) {
     const verdict = document.getElementById("fcVerdict");
-    if (verdict) {
-      verdict.style.display = "flex";
-      verdict.style.gap = "16px";
-      verdict.style.justifyContent = "center";
-      verdict.style.marginTop = "20px";
-      verdict.style.flexWrap = "wrap";
-    }
+    if (verdict) { verdict.style.display = "flex"; verdict.style.gap = "16px"; verdict.style.justifyContent = "center"; verdict.style.marginTop = "20px"; verdict.style.flexWrap = "wrap"; }
   }
 };
 
-// Mark Known
 window.fcMarkKnown = function() {
   const s = fcSession;
   const card = s.retest ? s.retestQueue[s.retestIndex] : s.queue[s.roundIndex];
@@ -1001,7 +1101,6 @@ window.fcMarkKnown = function() {
   animateCardOut("right", renderFCSession);
 };
 
-// Mark Unknown
 window.fcMarkUnknown = function() {
   const s = fcSession;
   const card = s.retest ? s.retestQueue[s.retestIndex] : s.queue[s.roundIndex];
@@ -1012,47 +1111,31 @@ window.fcMarkUnknown = function() {
   animateCardOut("left", renderFCSession);
 };
 
-// Swipe animation
 function animateCardOut(direction, cb) {
   const card = document.getElementById("fcCard");
   if (!card) { cb(); return; }
   card.style.transition = "transform 0.25s ease, opacity 0.25s ease";
-  card.style.transform = direction === "right" ? "translateX(120%) rotate(8deg)" : "translateX(-120%) rotate(-8deg)";
-  card.style.opacity = "0";
+  card.style.transform  = direction === "right" ? "translateX(120%) rotate(8deg)" : "translateX(-120%) rotate(-8deg)";
+  card.style.opacity    = "0";
   setTimeout(cb, 240);
 }
 
-// Keyboard controls
 function setupFCSessionKeyboard() {
   document.onkeydown = (e) => {
     const tag = document.activeElement?.tagName;
     if (tag === "INPUT" || tag === "TEXTAREA") return;
     if (e.key === " ") { e.preventDefault(); fcFlip(); }
-    else if (e.key === "ArrowRight") {
-      const inner = document.getElementById("fcInner");
-      if (inner?.classList.contains("flipped")) window.fcMarkKnown();
-    }
-    else if (e.key === "ArrowLeft") {
-      const inner = document.getElementById("fcInner");
-      if (inner?.classList.contains("flipped")) window.fcMarkUnknown();
-    }
+    else if (e.key === "ArrowRight") { const inner = document.getElementById("fcInner"); if (inner?.classList.contains("flipped")) window.fcMarkKnown(); }
+    else if (e.key === "ArrowLeft")  { const inner = document.getElementById("fcInner"); if (inner?.classList.contains("flipped")) window.fcMarkUnknown(); }
   };
 }
 
-// Shuffle
 function shuffle(arr) {
-  for (let i = arr.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [arr[i], arr[j]] = [arr[j], arr[i]];
-  }
+  for (let i = arr.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [arr[i], arr[j]] = [arr[j], arr[i]]; }
   return arr;
 }
 
-// renderFlashcardUI kept for edit panel compatibility
-function renderFlashcardUI(pairs) {
-  currentFlashcards = pairs;
-  startFlashcardSession(pairs);
-}
+function renderFlashcardUI(pairs) { currentFlashcards = pairs; startFlashcardSession(pairs); }
 
 // =========================
 // QUIZ PARSER
@@ -1060,15 +1143,15 @@ function renderFlashcardUI(pairs) {
 function parseQuiz(text) {
   text = text.replace(/<think>[\s\S]*?<\/think>/gi, "").trim();
   const questions = [];
-  const blocks = text.split(/\n(?=\d+[\.\)])/);
+  const blocks    = text.split(/\n(?=\d+[\.\)])/);
   for (let block of blocks) {
     block = block.trim(); if (!block) continue;
-    const lines = block.split("\n").map(l => l.trim()).filter(Boolean);
+    const lines  = block.split("\n").map(l => l.trim()).filter(Boolean);
     if (lines.length < 3) continue;
-    const qText = lines[0].replace(/^\d+[\.\)]\s*/, "");
+    const qText  = lines[0].replace(/^\d+[\.\)]\s*/, "");
     const options = []; let correct = -1;
     for (let i = 1; i < lines.length; i++) {
-      const line = lines[i];
+      const line  = lines[i];
       const match = line.match(/^([A-D])[\.\)]\s*(.+)/i);
       if (match) {
         const isCorrect = line.includes("✓") || line.toLowerCase().includes("(correct)") || line.includes("*") || line.match(/\[correct\]/i);
@@ -1117,10 +1200,9 @@ window.answerQ = function(qi, oi, correct) {
   const qd = window._quizData; if (!qd) return;
   document.querySelectorAll(`#qq-${qi} .q-opt`).forEach(b => b.disabled = true);
   const chosen = document.getElementById(`opt-${qi}-${oi}`);
-  const fb = document.getElementById(`fb-${qi}`);
-  if (oi === correct) {
-    chosen.classList.add("correct"); fb.textContent = "✅ Correct!"; fb.style.color = "#4ade80"; qd.correct++;
-  } else {
+  const fb     = document.getElementById(`fb-${qi}`);
+  if (oi === correct) { chosen.classList.add("correct"); fb.textContent = "✅ Correct!"; fb.style.color = "#4ade80"; qd.correct++; }
+  else {
     chosen.classList.add("wrong");
     fb.textContent = correct >= 0 ? `❌ Wrong — correct answer was ${qd.questions[qi].options[correct]?.letter}` : "❌ Wrong";
     fb.style.color = "#f87171";
@@ -1128,7 +1210,7 @@ window.answerQ = function(qi, oi, correct) {
   }
   qd.answered++;
   if (qd.answered === qd.total) {
-    const pct = Math.round((qd.correct / qd.total) * 100);
+    const pct     = Math.round((qd.correct / qd.total) * 100);
     const scoreEl = document.getElementById("quizScore");
     document.getElementById("scoreText").textContent = `You got ${qd.correct} / ${qd.total} correct (${pct}%) ${pct >= 70 ? "🎉 Great job!" : "📖 Keep studying!"}`;
     const bar = document.getElementById("quizScoreBar");
@@ -1145,34 +1227,23 @@ window.resetQuiz = () => renderQuizUI(currentQuizQuestions);
 // TOOL BUTTONS
 // =========================
 document.getElementById("summarizeBtn").onclick = () => runTool(
-  "Summarize all the key concepts and important points from this study material. Use headers, bold key terms, and bullet points.",
-  "summarizeBtn"
+  "Summarize all the key concepts and important points from this study material. Use headers, bold key terms, and bullet points.", "summarizeBtn"
 );
-
 document.getElementById("flashcardBtn").onclick = () => runToolFull(
   `Read ALL of the study material and create a flashcard for EVERY distinct fact, term, definition, concept, date, formula, process, and key point — no matter how many cards that takes. Do not stop early. Do not group things together to save cards.
 
 STRICT RULES:
 - One card per fact. If there are 40 facts, make 40 cards.
-- Questions: specific and exam-style. E.g. "What is X?", "What causes Y?", "What year did Z?", "List the steps of W."
-- Answers: MAX 1 sentence or 3–5 word list. Cut every unnecessary word.
-- NO vague questions like "What is important about X?" — only testable specifics.
-- NO filler, preamble, or commentary. Output ONLY the cards.
+- Questions: specific and exam-style.
+- Answers: MAX 1 sentence or 3–5 word list.
+- NO vague questions. NO filler, preamble, or commentary. Output ONLY the cards.
 
-EXACT FORMAT — every card must follow this precisely:
+EXACT FORMAT:
 Q: [question]
-A: [answer]`,
-  "flashcardBtn", renderFlashcards
+A: [answer]`, "flashcardBtn", renderFlashcards
 );
-
 document.getElementById("quizBtn").onclick = () => runToolFull(
-  `Read ALL of the study material and generate a multiple choice question for every major concept, fact, term, and process — use as many questions as the material requires, minimum 10. Do not stop early.
-
-STRICT RULES:
-- One question per concept. Cover everything.
-- Questions must be specific and testable, not vague.
-- Wrong options must be plausible, not obviously silly.
-- NO preamble or commentary. Output ONLY the questions.
+  `Read ALL of the study material and generate a multiple choice question for every major concept, fact, term, and process — minimum 10.
 
 EXACT FORMAT:
 1. [Question text]
@@ -1181,33 +1252,19 @@ B. [option]
 C. [option] (correct)
 D. [option]
 
-Mark the correct answer with (correct) after it.`,
-  "quizBtn", renderQuiz
+Mark the correct answer with (correct) after it.`, "quizBtn", renderQuiz
 );
-
 document.getElementById("studyPlanBtn").onclick = () => runTool(
-  "Create a structured study plan for mastering this material. Break it into daily sessions with specific topics. Use bold headings and bullet points.",
-  "studyPlanBtn"
+  "Create a structured study plan for mastering this material. Break it into daily sessions with specific topics. Use bold headings and bullet points.", "studyPlanBtn"
 );
-
 document.getElementById("eli5Btn").onclick = () => runTool(
-  "Explain the main concepts from this study material like I am 5 years old. Use simple words, fun analogies, and bullet points.",
-  "eli5Btn"
+  "Explain the main concepts from this study material like I am 5 years old. Use simple words, fun analogies, and bullet points.", "eli5Btn"
 );
-
 document.getElementById("mnemonicBtn").onclick = () => runTool(
-  "Create memory tricks, mnemonics, and acronyms to help remember the key concepts. Use bold for the mnemonics.",
-  "mnemonicBtn"
+  "Create memory tricks, mnemonics, and acronyms to help remember the key concepts. Use bold for the mnemonics.", "mnemonicBtn"
 );
-
 document.getElementById("practiceTestBtn").onclick = () => runToolFull(
-  `Read ALL of the study material and generate a comprehensive practice test covering every topic — use as many questions as needed, minimum 15. Prioritize the most testable and important facts.
-
-STRICT RULES:
-- Cover every section and topic in the material.
-- Questions must be specific, not vague or generic.
-- Wrong options must be plausible.
-- NO preamble or commentary. Output ONLY the questions.
+  `Read ALL of the study material and generate a comprehensive practice test covering every topic — minimum 15 questions.
 
 EXACT FORMAT:
 1. [Question text]
@@ -1216,13 +1273,10 @@ B. [option]
 C. [option] (correct)
 D. [option]
 
-Mark the correct answer with (correct) after it.`,
-  "practiceTestBtn", renderQuiz
+Mark the correct answer with (correct) after it.`, "practiceTestBtn", renderQuiz
 );
-
 document.getElementById("weaknessBtn").onclick = () => runTool(
-  "Identify the 3-5 most complex or tricky concepts in this material. Use bold headers for each concept, explain why it is difficult, and give tips for mastering it.",
-  "weaknessBtn"
+  "Identify the 3-5 most complex or tricky concepts in this material. Use bold headers for each concept, explain why it is difficult, and give tips for mastering it.", "weaknessBtn"
 );
 
 // =========================
@@ -1233,15 +1287,15 @@ document.getElementById("chatInput").addEventListener("keydown", (e) => { if (e.
 
 async function sendMessage() {
   const input = document.getElementById("chatInput");
-  const msg = input.value.trim();
+  const msg   = input.value.trim();
   if (!msg || !currentSubject) return;
   addMessage(msg, "user"); input.value = "";
   const typingDiv = addMessage("...", "ai");
-  const reply = await askAI(msg);
-  const clean = reply.replace(/<think>[\s\S]*?<\/think>/gi, "").trim();
+  const reply     = await askAI(msg);
+  const clean     = reply.replace(/<think>[\s\S]*?<\/think>/gi, "").trim();
   typingDiv.innerHTML = renderMarkdown(clean);
   currentSubject.chatHistory.push({ role: "user", content: msg });
-  currentSubject.chatHistory.push({ role: "ai", content: clean });
+  currentSubject.chatHistory.push({ role: "ai",   content: clean });
   awardXP(5); save();
 }
 
@@ -1267,9 +1321,7 @@ function renderFiles() {
   const list = document.getElementById("fileList"); list.innerHTML = "";
   if (!currentSubject) return;
   if (!currentSubject.files.length) { list.innerHTML = `<li style="opacity:0.4">No files yet.</li>`; return; }
-  currentSubject.files.forEach(f => {
-    const li = document.createElement("li"); li.textContent = "📄 " + f.name; list.appendChild(li);
-  });
+  currentSubject.files.forEach(f => { const li = document.createElement("li"); li.textContent = "📄 " + f.name; list.appendChild(li); });
   document.getElementById("subjectSubtitle").innerText = `${currentSubject.files.length} file(s) uploaded`;
 }
 
@@ -1280,11 +1332,8 @@ function awardXP(amount) {
   if (!currentSubject) return;
   currentSubject.xp = (currentSubject.xp || 0) + amount;
   const newLevel = Math.floor(currentSubject.xp / 100) + 1;
-  if (newLevel > currentSubject.level) {
-    currentSubject.level = newLevel;
-    confetti({ particleCount: 120, spread: 70, origin: { y: 0.6 } });
-  }
-  document.getElementById("xp").innerText = currentSubject.xp;
+  if (newLevel > currentSubject.level) { currentSubject.level = newLevel; confetti({ particleCount: 120, spread: 70, origin: { y: 0.6 } }); }
+  document.getElementById("xp").innerText    = currentSubject.xp;
   document.getElementById("level").innerText = currentSubject.level;
   save();
 }
@@ -1292,14 +1341,10 @@ function awardXP(amount) {
 // =========================
 // THEME TOGGLE
 // =========================
-const themeBtn = document.getElementById("themeToggle");
-const savedTheme = localStorage.getItem("theme") || "dark";
-if (savedTheme === "light") {
-  document.body.classList.add("light");
-  if (themeBtn) themeBtn.textContent = "🌞 Light Mode";
-} else {
-  if (themeBtn) themeBtn.textContent = "🌙 Dark Mode";
-}
+const themeBtn    = document.getElementById("themeToggle");
+const savedTheme  = localStorage.getItem("theme") || "dark";
+if (savedTheme === "light") { document.body.classList.add("light"); if (themeBtn) themeBtn.textContent = "🌞 Light Mode"; }
+else { if (themeBtn) themeBtn.textContent = "🌙 Dark Mode"; }
 
 if (themeBtn) {
   themeBtn.onclick = () => {
@@ -1312,15 +1357,15 @@ if (themeBtn) {
 }
 
 // =========================
-// RESET API KEY
+// RESET API KEY BUTTON (legacy — now handled by user badge)
 // =========================
 document.getElementById("resetKeyBtn")?.addEventListener("click", () => {
   const newKey = prompt("Enter new Claude API key:");
-  if (newKey && newKey.trim()) {
-    CLAUDE_API_KEY = newKey.trim();
-    localStorage.setItem("claude_api_key", CLAUDE_API_KEY);
-    alert("API key updated!");
-  }
+  if (!newKey || !newKey.trim()) return;
+  if (!newKey.trim().startsWith("sk-")) { alert("That doesn't look like a valid key."); return; }
+  if (currentUser) { currentUser.apiKey = newKey.trim(); localStorage.setItem(AUTH_KEY, JSON.stringify(currentUser)); }
+  CLAUDE_API_KEY = newKey.trim();
+  showToast("✅ API key updated");
 });
 
 // =========================
@@ -1351,8 +1396,3 @@ document.getElementById("startTimer").onclick = () => {
 };
 document.getElementById("pauseTimer").onclick = () => { clearInterval(timerInterval); timerRunning = false; };
 document.getElementById("resetTimer").onclick = () => { clearInterval(timerInterval); timerRunning = false; timerSeconds = 25 * 60; updateTimerDisplay(); };
-
-// =========================
-// INITIAL RENDER — load saved subjects on page load
-// =========================
-renderSubjects();
