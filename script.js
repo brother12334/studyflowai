@@ -29,18 +29,19 @@ let currentFlashcards    = [];
 let currentQuizQuestions = [];
 let currentMode          = null;
 let lastBtnId            = null;
+let activeTool           = null;
 
 // =========================
 // FLASHCARD STUDY SESSION STATE
 // =========================
 let fcSession = {
-  allCards:      [],   // full original deck
-  queue:         [],   // cards still to show this round
-  unknown:       [],   // cards marked "don't know" this round
-  known:         [],   // cards marked "know it" (mastered)
-  roundIndex:    0,    // which card in current queue we're on
-  roundNumber:   1,    // which pass through we're on
-  retest:        false // are we in a retest mini-round?
+  allCards:   [],
+  queue:      [],
+  unknown:    [],
+  known:      [],
+  roundIndex:  0,
+  roundNumber: 1,
+  retest:     false
 };
 
 // =========================
@@ -55,6 +56,17 @@ const CACHE_KEYS = {
   mnemonicBtn:     "mnemonics",
   practiceTestBtn: "practiceTest",
   weaknessBtn:     "weakness"
+};
+
+const TOOL_NAMES = {
+  summarizeBtn:    "Summary",
+  flashcardBtn:    "Flashcards",
+  quizBtn:         "Quiz",
+  studyPlanBtn:    "Study Plan",
+  eli5Btn:         "ELI5",
+  mnemonicBtn:     "Memory Tricks",
+  practiceTestBtn: "Practice Test",
+  weaknessBtn:     "Weak Spots"
 };
 
 // =========================
@@ -143,6 +155,7 @@ function deleteSubject(id) {
   subjects = subjects.filter(s => s.id !== id);
   if (currentSubject?.id === id) {
     currentSubject = null;
+    activeTool = null;
     document.getElementById("subjectTitle").innerText = "Select a Subject";
     document.getElementById("subjectSubtitle").innerText = "Upload study guides to begin.";
     document.getElementById("fileList").innerHTML = "";
@@ -163,10 +176,12 @@ function deleteSubject(id) {
 function loadSubject(id) {
   currentSubject = subjects.find(s => s.id === id);
   if (!currentSubject.cache) currentSubject.cache = {};
+  activeTool = null;
   document.getElementById("subjectTitle").innerText = currentSubject.name;
   document.getElementById("subjectSubtitle").innerText = `${currentSubject.files.length} file(s) uploaded`;
   document.getElementById("xp").innerText = currentSubject.xp || 0;
   document.getElementById("level").innerText = currentSubject.level || 1;
+  document.getElementById("output").innerHTML = "";
   renderFiles();
   renderChat();
   renderSubjects();
@@ -384,64 +399,90 @@ ${prompt}
 }
 
 // =========================
-// CACHE BAR
+// CACHE BAR (legacy stub — kept so old references don't break)
 // =========================
-function showCacheBar(btnId) {
-  const bar = document.getElementById("cacheBar");
-  if (!bar) return;
-  const label = document.getElementById("cacheLabel");
-  const names = {
-    summarizeBtn:    "Summary",
-    flashcardBtn:    "Flashcards",
-    quizBtn:         "Quiz",
-    studyPlanBtn:    "Study Plan",
-    eli5Btn:         "ELI5",
-    mnemonicBtn:     "Mnemonics",
-    practiceTestBtn: "Practice Test",
-    weaknessBtn:     "Weak Spots"
-  };
-  if (label) label.textContent = `Showing saved ${names[btnId] || "result"}`;
-  bar.style.display = "flex";
-}
-
 function hideCacheBar() {
   const bar = document.getElementById("cacheBar");
   if (bar) bar.style.display = "none";
 }
 
-document.getElementById("regenBtn")?.addEventListener("click", () => {
-  if (!lastBtnId || !currentSubject) return;
-  const cacheKey = CACHE_KEYS[lastBtnId];
-  if (cacheKey && currentSubject.cache) {
-    delete currentSubject.cache[cacheKey];
-    save();
-  }
+// =========================
+// INLINE RESULT BAR
+// Injects a "Showing saved X / Regenerate" bar at top of #output
+// =========================
+function showResultWithBar(btnId, renderer, value) {
+  activeTool = btnId;
   hideCacheBar();
-  document.getElementById(lastBtnId)?.click();
-});
+
+  // Render content first
+  if (renderer) {
+    renderer(value);
+  } else {
+    setOutput(value);
+  }
+
+  // Inject bar at top of output
+  const outputDiv = document.getElementById("output");
+  const existing = document.getElementById("inlineCacheBar");
+  if (existing) existing.remove();
+
+  const bar = document.createElement("div");
+  bar.id = "inlineCacheBar";
+  bar.style.cssText = `
+    display:flex; align-items:center; justify-content:space-between;
+    gap:12px; padding:10px 14px; margin-bottom:14px;
+    border-radius:10px; background:rgba(255,255,255,0.05);
+    border:1px solid rgba(255,255,255,0.1); font-size:0.83rem;
+    color:#888; flex-shrink:0;
+  `;
+  bar.innerHTML = `
+    <span>📌 Showing saved ${TOOL_NAMES[btnId] || "result"}</span>
+    <button id="inlineRegenBtn" style="
+      padding:5px 12px; border-radius:6px;
+      border:1px solid rgba(255,255,255,0.15);
+      background:transparent; color:inherit;
+      cursor:pointer; font-size:0.82rem;
+      white-space:nowrap; transition:background 0.2s;
+    ">🔄 Regenerate</button>
+  `;
+
+  outputDiv.insertBefore(bar, outputDiv.firstChild);
+
+  document.getElementById("inlineRegenBtn").onclick = () => {
+    if (!currentSubject) return;
+    const cacheKey = CACHE_KEYS[btnId];
+    if (cacheKey && currentSubject.cache) {
+      delete currentSubject.cache[cacheKey];
+      save();
+    }
+    activeTool = null;
+    document.getElementById(btnId)?.click();
+  };
+}
 
 // =========================
-// TOOL RUNNER (with cache)
+// TOOL RUNNER — focused context, with toggle
 // =========================
 async function runTool(prompt, btnId, renderer) {
   if (!currentSubject) { alert("Select a subject first."); return; }
   if (!currentSubject.chunks.length) { alert("Upload study files first."); return; }
-
   if (!currentSubject.cache) currentSubject.cache = {};
+
   const cacheKey = CACHE_KEYS[btnId];
   lastBtnId = btnId;
 
+  // Already cached — show it
   if (cacheKey && currentSubject.cache[cacheKey]) {
     hideEditPanel();
-    renderer
-      ? renderer(currentSubject.cache[cacheKey])
-      : setOutput(currentSubject.cache[cacheKey]);
-    showCacheBar(btnId);
+    showResultWithBar(btnId, renderer, currentSubject.cache[cacheKey]);
     return;
   }
 
+  // Generate fresh
+  activeTool = btnId;
   const btn = document.getElementById(btnId);
-  btn.disabled = true; btn.classList.add("loading");
+  btn.disabled = true;
+  btn.classList.add("loading");
   document.getElementById("output").innerHTML = `<p style="opacity:0.5">⏳ Thinking...</p>`;
   hideEditPanel();
   hideCacheBar();
@@ -453,32 +494,37 @@ async function runTool(prompt, btnId, renderer) {
     save();
   }
 
-  renderer ? renderer(result) : setOutput(result);
+  showResultWithBar(btnId, renderer, result);
   awardXP(10);
-  btn.disabled = false; btn.classList.remove("loading");
-  showCacheBar(btnId);
+  btn.disabled = false;
+  btn.classList.remove("loading");
 }
 
+// =========================
+// TOOL RUNNER FULL — full context, with toggle
+// =========================
 async function runToolFull(prompt, btnId, renderer) {
   if (!currentSubject) { alert("Select a subject first."); return; }
   if (!currentSubject.chunks.length) { alert("Upload study files first."); return; }
-
   if (!currentSubject.cache) currentSubject.cache = {};
+
   const cacheKey = CACHE_KEYS[btnId];
   lastBtnId = btnId;
 
+  // Already cached — show it
   if (cacheKey && currentSubject.cache[cacheKey]) {
     hideEditPanel();
-    renderer
-      ? renderer(currentSubject.cache[cacheKey])
-      : setOutput(currentSubject.cache[cacheKey]);
-    showEditPanel(btnId === "flashcardBtn" ? "flashcard" : "quiz");
-    showCacheBar(btnId);
+    showResultWithBar(btnId, renderer, currentSubject.cache[cacheKey]);
+    if (btnId === "flashcardBtn") showEditPanel("flashcard");
+    else if (btnId === "quizBtn" || btnId === "practiceTestBtn") showEditPanel("quiz");
     return;
   }
 
+  // Generate fresh
+  activeTool = btnId;
   const btn = document.getElementById(btnId);
-  btn.disabled = true; btn.classList.add("loading");
+  btn.disabled = true;
+  btn.classList.add("loading");
   document.getElementById("output").innerHTML = `<p style="opacity:0.5">⏳ Generating from full material...</p>`;
   hideEditPanel();
   hideCacheBar();
@@ -490,10 +536,10 @@ async function runToolFull(prompt, btnId, renderer) {
     save();
   }
 
-  renderer ? renderer(result) : setOutput(result);
+  showResultWithBar(btnId, renderer, result);
   awardXP(10);
-  btn.disabled = false; btn.classList.remove("loading");
-  showCacheBar(btnId);
+  btn.disabled = false;
+  btn.classList.remove("loading");
 }
 
 // =========================
@@ -648,18 +694,17 @@ function renderFlashcards(text) {
 // =========================
 // FLASHCARD SESSION — SPACED REPETITION
 // =========================
-const RETEST_INTERVAL = 5; // retest unknown cards every N cards seen
+const RETEST_INTERVAL = 5;
 
 function startFlashcardSession(pairs) {
-  // Deep-copy so we don't mutate the cached originals
   fcSession = {
-    allCards:   pairs.map((p, i) => ({ ...p, id: i })),
-    queue:      pairs.map((p, i) => ({ ...p, id: i })),
-    unknown:    [],
-    known:      [],
-    roundIndex: 0,
+    allCards:    pairs.map((p, i) => ({ ...p, id: i })),
+    queue:       pairs.map((p, i) => ({ ...p, id: i })),
+    unknown:     [],
+    known:       [],
+    roundIndex:  0,
     roundNumber: 1,
-    retest:     false
+    retest:      false
   };
   renderFCSession();
 }
@@ -667,7 +712,7 @@ function startFlashcardSession(pairs) {
 function renderFCSession() {
   const s = fcSession;
 
-  // ── All mastered ──────────────────────────────────────
+  // All mastered
   if (s.known.length === s.allCards.length) {
     const pct = 100;
     setOutput(`
@@ -684,21 +729,17 @@ function renderFCSession() {
     return;
   }
 
-  // ── Determine active card ────────────────────────────
-  // Check if it's time for a retest burst
+  // Retest burst check
   if (!s.retest && s.roundIndex > 0 && s.roundIndex % RETEST_INTERVAL === 0 && s.unknown.length > 0) {
-    // Inject retest: shuffle unknowns in at the front of queue right after current position
-    // We'll flag it and handle specially
     s.retest = true;
     s.retestQueue = shuffle([...s.unknown]);
     s.retestIndex = 0;
-    s.unknown = []; // clear; they'll be re-evaluated
+    s.unknown = [];
   }
 
   // Retest mode
   if (s.retest) {
     if (s.retestIndex >= s.retestQueue.length) {
-      // Retest done — if all retested cards now known we stay known; unknowns go back
       s.retest = false;
       renderFCSession();
       return;
@@ -708,15 +749,13 @@ function renderFCSession() {
     return;
   }
 
-  // Normal mode — if queue exhausted, start a new round with unknowns
+  // Normal — queue exhausted
   if (s.roundIndex >= s.queue.length) {
     if (s.unknown.length === 0) {
-      // Everything mastered
       s.known = s.allCards;
       renderFCSession();
       return;
     }
-    // New round: unknown cards become the queue
     s.roundNumber++;
     s.queue = shuffle([...s.unknown]);
     s.unknown = [];
@@ -735,19 +774,15 @@ function renderFCCard(card, isRetest) {
   const totalCount = s.allCards.length;
   const pct = Math.round((masteredCount / totalCount) * 100);
 
-  // Which position are we at in the visible sequence
-  const pos = isRetest ? s.retestIndex + 1 : s.roundIndex + 1;
+  const pos   = isRetest ? s.retestIndex + 1 : s.roundIndex + 1;
   const total = isRetest ? s.retestQueue.length : s.queue.length;
-  const retestBadge = isRetest
-    ? `<span class="fc-retest-badge">🔁 Retest</span>`
-    : "";
-  const roundLabel = isRetest
+  const retestBadge = isRetest ? `<span class="fc-retest-badge">🔁 Retest</span>` : "";
+  const roundLabel  = isRetest
     ? `Reviewing ${s.retestQueue.length} card${s.retestQueue.length !== 1 ? "s" : ""} you missed`
     : `Round ${s.roundNumber} · ${masteredCount}/${totalCount} mastered`;
 
   const html = `
     <div class="fc-wrap">
-      <!-- Progress header -->
       <div class="fc-top-bar">
         <div class="fc-progress-bar">
           <div class="fc-progress-fill" style="width:${pct}%"></div>
@@ -756,13 +791,11 @@ function renderFCCard(card, isRetest) {
       </div>
       <p class="fc-round-label">${roundLabel}</p>
 
-      <!-- Mastery chips -->
       <div class="fc-mastery-row">
         <span class="fc-chip fc-chip-known">✅ Known: ${masteredCount}</span>
         <span class="fc-chip fc-chip-unknown">❌ To learn: ${totalCount - masteredCount}</span>
       </div>
 
-      <!-- Card -->
       <div class="fc-card" id="fcCard" onclick="fcFlip()">
         <div class="fc-inner" id="fcInner">
           <div class="fc-front">
@@ -777,19 +810,27 @@ function renderFCCard(card, isRetest) {
         </div>
       </div>
 
-      <!-- Know it / Don't know it buttons (hidden until flipped) -->
-      <div class="fc-verdict" id="fcVerdict" style="display:none">
-        <button class="fc-btn-unknown" onclick="fcMarkUnknown()">
-          <span class="fc-btn-icon">😕</span>
-          <span>Don't Know It</span>
+      <div class="fc-verdict" id="fcVerdict" style="display:none;">
+        <button class="fc-btn-unknown" onclick="fcMarkUnknown()" style="
+          display:inline-flex; align-items:center; gap:8px;
+          padding:14px 28px; border-radius:12px; border:2px solid rgba(248,113,113,0.4);
+          background:rgba(248,113,113,0.1); color:#f87171;
+          font-size:1rem; font-weight:600; cursor:pointer;
+          transition:all 0.2s; min-width:150px; justify-content:center;
+        ">
+          <span>😕</span> Don't Know It
         </button>
-        <button class="fc-btn-known" onclick="fcMarkKnown()">
-          <span class="fc-btn-icon">💪</span>
-          <span>Know It!</span>
+        <button class="fc-btn-known" onclick="fcMarkKnown()" style="
+          display:inline-flex; align-items:center; gap:8px;
+          padding:14px 28px; border-radius:12px; border:2px solid rgba(74,222,128,0.4);
+          background:rgba(74,222,128,0.1); color:#4ade80;
+          font-size:1rem; font-weight:600; cursor:pointer;
+          transition:all 0.2s; min-width:150px; justify-content:center;
+        ">
+          <span>💪</span> Know It!
         </button>
       </div>
 
-      <!-- Keyboard hint -->
       <p class="fc-kb-hint">Space = flip &nbsp;·&nbsp; ← Don't know &nbsp;·&nbsp; → Know it</p>
     </div>
   `;
@@ -798,61 +839,45 @@ function renderFCCard(card, isRetest) {
   setupFCSessionKeyboard();
 }
 
-// ── Flip ──────────────────────────────────────────────
+// Flip
 window.fcFlip = function() {
   const inner = document.getElementById("fcInner");
   if (!inner) return;
   const isFlipped = inner.classList.toggle("flipped");
   if (isFlipped) {
     const verdict = document.getElementById("fcVerdict");
-    if (verdict) verdict.style.display = "flex";
+    if (verdict) {
+      verdict.style.display = "flex";
+      verdict.style.gap = "16px";
+      verdict.style.justifyContent = "center";
+      verdict.style.marginTop = "20px";
+      verdict.style.flexWrap = "wrap";
+    }
   }
 };
 
-// ── Mark Known ───────────────────────────────────────
+// Mark Known
 window.fcMarkKnown = function() {
   const s = fcSession;
   const card = s.retest ? s.retestQueue[s.retestIndex] : s.queue[s.roundIndex];
   if (!card) return;
-
-  // Add to known set (deduplicate)
-  if (!s.known.find(c => c.id === card.id)) {
-    s.known.push(card);
-  }
-
-  if (s.retest) {
-    s.retestIndex++;
-  } else {
-    s.roundIndex++;
-  }
-
+  if (!s.known.find(c => c.id === card.id)) s.known.push(card);
+  if (s.retest) s.retestIndex++; else s.roundIndex++;
   animateCardOut("right", renderFCSession);
 };
 
-// ── Mark Unknown ─────────────────────────────────────
+// Mark Unknown
 window.fcMarkUnknown = function() {
   const s = fcSession;
   const card = s.retest ? s.retestQueue[s.retestIndex] : s.queue[s.roundIndex];
   if (!card) return;
-
-  // Remove from known if it was previously known (regression)
   s.known = s.known.filter(c => c.id !== card.id);
-
-  // Push to unknown pile for next retest/round
-  if (!s.unknown.find(c => c.id === card.id)) {
-    s.unknown.push(card);
-  }
-
-  if (s.retest) {
-    s.retestIndex++;
-  } else {
-    s.roundIndex++;
-  }
-
+  if (!s.unknown.find(c => c.id === card.id)) s.unknown.push(card);
+  if (s.retest) s.retestIndex++; else s.roundIndex++;
   animateCardOut("left", renderFCSession);
 };
 
-// ── Swipe animation ───────────────────────────────────
+// Swipe animation
 function animateCardOut(direction, cb) {
   const card = document.getElementById("fcCard");
   if (!card) { cb(); return; }
@@ -862,7 +887,7 @@ function animateCardOut(direction, cb) {
   setTimeout(cb, 240);
 }
 
-// ── Keyboard controls ────────────────────────────────
+// Keyboard controls
 function setupFCSessionKeyboard() {
   document.onkeydown = (e) => {
     const tag = document.activeElement?.tagName;
@@ -879,7 +904,7 @@ function setupFCSessionKeyboard() {
   };
 }
 
-// ── Shuffle helper ────────────────────────────────────
+// Shuffle
 function shuffle(arr) {
   for (let i = arr.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
@@ -888,7 +913,7 @@ function shuffle(arr) {
   return arr;
 }
 
-// Legacy renderFlashcardUI kept for edit panel compatibility
+// renderFlashcardUI kept for edit panel compatibility
 function renderFlashcardUI(pairs) {
   currentFlashcards = pairs;
   startFlashcardSession(pairs);
