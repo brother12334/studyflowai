@@ -337,7 +337,7 @@ ${prompt}
       },
       body: JSON.stringify({
         model: CLAUDE_MODEL,
-        max_tokens: 500,
+        max_tokens: 2000,
         system,
         messages: [{ role: "user", content: fullPrompt }]
       })
@@ -385,7 +385,7 @@ ${prompt}
       },
       body: JSON.stringify({
         model: CLAUDE_MODEL,
-        max_tokens: 2000,
+        max_tokens: 4000,
         system,
         messages: [{ role: "user", content: fullPrompt }]
       })
