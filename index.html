@@ -131,6 +131,12 @@
     html.light #cacheBar #regenBtn:hover {
       background: rgba(0,0,0,0.06);
     }
+
+    /* =============================================
+       DROP ZONE — pointer cursor so whole area is
+       clearly clickable (label inside handles it)
+    ============================================= */
+    .upload-area { cursor: pointer; }
   </style>
 </head>
 
@@ -168,8 +174,18 @@
       <div id="subjectList"></div>
 
       <div class="sidebar-bottom">
+        <!--
+          #userBadgeWrap is injected here by addUserBadge() in script.js
+          (inserted as sidebar-bottom's firstChild after login).
+          The buttons below are legacy fallbacks / extras.
+        -->
         <button id="themeToggle">🌙 Dark Mode</button>
         <button id="musicToggle">🎵 Music</button>
+        <!--
+          #resetKeyBtn: script.js wires this up for legacy API-key reset.
+          The user-badge dropdown also handles key updates post-login,
+          but this button stays so the querySelector doesn't return null.
+        -->
         <button id="resetKeyBtn">🔑 Reset API Key</button>
       </div>
 
@@ -185,18 +201,32 @@
           <p id="subjectSubtitle">Upload study guides to begin.</p>
         </div>
         <div class="stats-container">
+          <!--
+            #streak: referenced by script.js but never written to (yet).
+            Kept here so the element exists and future updates work without HTML changes.
+          -->
           <div class="stat-card">🔥 <span id="streak">0</span></div>
           <div class="stat-card">⭐ <span id="xp">0</span> XP</div>
           <div class="stat-card">🏆 Lv.<span id="level">1</span></div>
         </div>
       </div>
 
-      <!-- UPLOAD -->
-      <div class="upload-area" id="dropZone">
+      <!-- UPLOAD
+           The entire dropZone div listens for dragover/dragleave/drop via script.js.
+           The hidden <input> is triggered by the <label for="fileInput"> inside,
+           AND by clicking the dropZone div itself (onclick below) so the full
+           zone is clickable — not just the "Browse Files" label text.
+      -->
+      <div class="upload-area" id="dropZone" onclick="document.getElementById('fileInput').click()">
         <h3>Drop Files Here</h3>
         <p>PDF, DOCX, TXT</p>
-        <label class="upload-label" for="fileInput">Browse Files</label>
-        <input type="file" id="fileInput" multiple accept=".pdf,.docx,.txt,text/plain,application/pdf">
+        <!--
+          stopPropagation on the label prevents the div onclick from firing
+          a second time when the label itself is clicked (label already
+          opens the picker natively via for="fileInput").
+        -->
+        <label class="upload-label" for="fileInput" onclick="event.stopPropagation()">Browse Files</label>
+        <input type="file" id="fileInput" multiple accept=".pdf,.docx,.txt,text/plain,application/pdf" style="display:none">
       </div>
 
       <!-- FILES -->
@@ -217,20 +247,32 @@
         <button class="tool-btn" id="weaknessBtn">📉 Weakness Detector</button>
       </div>
 
-      <!-- CACHE BAR — was missing from original, caused silent JS failures -->
+      <!-- CACHE BAR
+           hideCacheBar() sets display:none.
+           showResultWithBar() creates #inlineCacheBar inside #output instead,
+           so this element is the legacy/fallback bar referenced by hideCacheBar().
+      -->
       <div id="cacheBar">
-        <span id="cacheLabel">Showing saved result</span>
+        <span id="cacheLabel">📌 Showing saved result</span>
         <button id="regenBtn">🔄 Regenerate</button>
       </div>
 
-      <!-- OUTPUT -->
+      <!-- OUTPUT
+           script.js writes into #output directly via setOutput().
+           showResultWithBar() also prepends #inlineCacheBar as a child here.
+      -->
       <div class="glass-panel">
         <h3>AI Output</h3>
         <div id="output"></div>
       </div>
 
-      <!-- EDIT PANEL -->
-      <div class="edit-panel" id="editPanel">
+      <!-- EDIT PANEL
+           Shown by showEditPanel(), hidden by hideEditPanel().
+           script.js wires #editSendBtn, #editInput (keydown Enter), #editCloseBtn.
+           #editPanelTitle text is set dynamically based on flashcard vs quiz mode.
+           #editMessages receives chat bubbles.
+      -->
+      <div class="edit-panel" id="editPanel" style="display:none;">
         <div class="edit-panel-header">
           <h3 id="editPanelTitle">✏️ Edit with AI</h3>
           <button class="edit-close-btn" id="editCloseBtn">✕</button>
@@ -242,7 +284,11 @@
         </div>
       </div>
 
-      <!-- CHAT -->
+      <!-- CHAT
+           #chatMessages: messages appended by addMessage().
+           #chatInput: Enter key wired to sendMessage() in script.js.
+           #sendBtn: onclick wired to sendMessage() in script.js.
+      -->
       <div class="chat-panel">
         <h3>Study Assistant</h3>
         <div id="chatMessages"></div>
@@ -252,7 +298,10 @@
         </div>
       </div>
 
-      <!-- POMODORO -->
+      <!-- POMODORO
+           #timer: text updated by updateTimerDisplay().
+           #startTimer / #pauseTimer / #resetTimer: wired in script.js.
+      -->
       <div class="glass-panel">
         <h3>Pomodoro Timer</h3>
         <div id="timer">25:00</div>
@@ -266,28 +315,44 @@
     </main>
   </div>
 
+  <!--
+    #studyMusic: script.js calls music.pause() / music.play() via
+    document.getElementById("studyMusic"). The loop attribute keeps
+    lo-fi going indefinitely. Hosted on Pixabay (royalty-free).
+  -->
   <audio id="studyMusic" loop src="https://cdn.pixabay.com/download/audio/2022/03/15/audio_c8c8a73467.mp3?filename=lofi-study-112191.mp3"></audio>
 
   <script src="intro.js"></script>
   <script src="script.js"></script>
 
-  <!-- Patch theme toggle to work with html.light class instead of body.light -->
+  <!--
+    Theme toggle patch: script.js sets themeToggle.onclick using body.classList,
+    but we need html.classList toggled too for the early-paint CSS vars above.
+    This runs AFTER script.js and overwrites the handler, keeping both in sync.
+    Also corrects the button label to match the stored theme on first load.
+  -->
   <script>
-    // Re-wire theme toggle after script.js runs, since script.js uses body.classList
-    // and we need html.classList for early paint. Keep both in sync.
-    const _origToggle = document.getElementById("themeToggle");
-    if (_origToggle) {
-      _origToggle.onclick = () => {
+    (function patchThemeToggle() {
+      const btn = document.getElementById("themeToggle");
+      if (!btn) return;
+
+      btn.onclick = () => {
         document.body.classList.toggle("light");
         document.documentElement.classList.toggle("light");
         const isLight = document.body.classList.contains("light");
-        _origToggle.textContent = isLight ? "🌞 Light Mode" : "🌙 Dark Mode";
+        btn.textContent = isLight ? "🌞 Light Mode" : "🌙 Dark Mode";
         localStorage.setItem("theme", isLight ? "light" : "dark");
       };
-      // Set correct label on load
+
+      // Sync label to current theme on load
       const saved = localStorage.getItem("theme");
-      _origToggle.textContent = saved === "light" ? "🌞 Light Mode" : "🌙 Dark Mode";
-    }
+      btn.textContent = saved === "light" ? "🌞 Light Mode" : "🌙 Dark Mode";
+
+      // Apply light class to body too if html already has it (set by early script above)
+      if (document.documentElement.classList.contains("light")) {
+        document.body.classList.add("light");
+      }
+    })();
   </script>
 
 </body>
