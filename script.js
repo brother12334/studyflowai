@@ -1216,3 +1216,5 @@ document.getElementById("startTimer").onclick = () => {
 };
 document.getElementById("pauseTimer").onclick = () => { clearInterval(timerInterval); timerRunning = false; };
 document.getElementById("resetTimer").onclick = () => { clearInterval(timerInterval); timerRunning = false; timerSeconds = 25 * 60; updateTimerDisplay(); };
+// Initial render
+renderSubjects();
