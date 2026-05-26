@@ -14,7 +14,7 @@ if (!CLAUDE_API_KEY) {
   }
 }
 
-const CLAUDE_MODEL = "claude-sonnet-4-6";
+const CLAUDE_MODEL = "claude-sonnet-4-20250514";
 
 // =========================
 // STATE
@@ -29,6 +29,19 @@ let currentFlashcards    = [];
 let currentQuizQuestions = [];
 let currentMode          = null;
 let lastBtnId            = null;
+
+// =========================
+// FLASHCARD STUDY SESSION STATE
+// =========================
+let fcSession = {
+  allCards:      [],   // full original deck
+  queue:         [],   // cards still to show this round
+  unknown:       [],   // cards marked "don't know" this round
+  known:         [],   // cards marked "know it" (mastered)
+  roundIndex:    0,    // which card in current queue we're on
+  roundNumber:   1,    // which pass through we're on
+  retest:        false // are we in a retest mini-round?
+};
 
 // =========================
 // CACHE KEY MAP
@@ -243,7 +256,7 @@ function getRelevantChunks(question) {
       return { ...c, score };
     })
     .sort((a, b) => b.score - a.score)
-    .slice(0, 1);
+    .slice(0, 6);
 }
 
 function getAllChunksContext() {
@@ -357,7 +370,7 @@ ${prompt}
       },
       body: JSON.stringify({
         model: CLAUDE_MODEL,
-        max_tokens: 1500,
+        max_tokens: 2000,
         system,
         messages: [{ role: "user", content: fullPrompt }]
       })
@@ -418,7 +431,6 @@ async function runTool(prompt, btnId, renderer) {
   const cacheKey = CACHE_KEYS[btnId];
   lastBtnId = btnId;
 
-  // Serve from cache if available
   if (cacheKey && currentSubject.cache[cacheKey]) {
     hideEditPanel();
     renderer
@@ -455,7 +467,6 @@ async function runToolFull(prompt, btnId, renderer) {
   const cacheKey = CACHE_KEYS[btnId];
   lastBtnId = btnId;
 
-  // Serve from cache if available
   if (cacheKey && currentSubject.cache[cacheKey]) {
     hideEditPanel();
     renderer
@@ -551,7 +562,6 @@ async function sendEditMessage() {
       if (pairs.length > 0) {
         currentFlashcards = pairs;
         renderFlashcardUI(pairs);
-        // Update cache with edited version
         if (currentSubject && currentSubject.cache) {
           currentSubject.cache["flashcards"] = text;
           save();
@@ -571,7 +581,6 @@ async function sendEditMessage() {
       if (qs.length > 0) {
         currentQuizQuestions = qs;
         renderQuizUI(qs);
-        // Update cache with edited version
         if (currentSubject && currentSubject.cache) {
           const key = lastBtnId === "practiceTestBtn" ? "practiceTest" : "quiz";
           currentSubject.cache[key] = text;
@@ -593,9 +602,6 @@ async function sendEditMessage() {
   }
 }
 
-// =========================
-// ADD EDIT MESSAGE
-// =========================
 function addEditMessage(text, type) {
   const div = document.createElement("div");
   div.className = `chat-bubble ${type}`;
@@ -629,72 +635,263 @@ function parseFlashcards(text) {
 }
 
 // =========================
-// FLASHCARD UI
+// FLASHCARD RENDER ENTRY
 // =========================
 function renderFlashcards(text) {
   const pairs = parseFlashcards(text);
   if (pairs.length === 0) { setOutput(text); return; }
   currentFlashcards = pairs;
-  renderFlashcardUI(pairs);
+  startFlashcardSession(pairs);
   showEditPanel("flashcard");
 }
 
-function renderFlashcardUI(pairs) {
-  let idx = 0, flipped = false;
+// =========================
+// FLASHCARD SESSION — SPACED REPETITION
+// =========================
+const RETEST_INTERVAL = 5; // retest unknown cards every N cards seen
 
-  function cardHTML(i) {
-    const p = pairs[i];
-    const pct = ((i + 1) / pairs.length) * 100;
-    return `<div class="fc-wrap">
-      <div class="fc-top-bar">
-        <div class="fc-progress-bar"><div class="fc-progress-fill" style="width:${pct}%"></div></div>
-        <p class="fc-counter">${i + 1} / ${pairs.length}</p>
-      </div>
-      <div class="fc-nav">
-        <button class="fc-nav-btn" onclick="fcPrev()" ${i === 0 ? "disabled" : ""}>← Prev</button>
-        <div class="fc-card" id="fcCard" onclick="toggleFlip()">
-          <div class="fc-inner" id="fcInner">
-            <div class="fc-front">
-              <span class="fc-side-label">Question</span>
-              <p class="fc-text">${p.q}</p>
-              <span class="fc-hint">Click to flip</span>
-            </div>
-            <div class="fc-back">
-              <span class="fc-side-label">Answer</span>
-              <p class="fc-text">${p.a}</p>
-            </div>
-          </div>
-        </div>
-        <button class="fc-nav-btn" onclick="fcNext()" ${i === pairs.length - 1 ? "disabled" : ""}>Next →</button>
-      </div>
-      <div class="fc-actions">
-        <button class="fc-action-btn" onclick="fcShuffle()">🔀 Shuffle</button>
-        <button class="fc-action-btn" onclick="fcRestart()">↺ Restart</button>
-      </div>
-    </div>`;
-  }
-
-  setOutput(cardHTML(idx), true);
-  setupFCKeyboard();
-
-  window.toggleFlip = () => { flipped = !flipped; document.getElementById("fcInner")?.classList.toggle("flipped", flipped); };
-  window.fcNext = () => { if (idx < pairs.length - 1) { idx++; flipped = false; setOutput(cardHTML(idx), true); setupFCKeyboard(); } };
-  window.fcPrev = () => { if (idx > 0) { idx--; flipped = false; setOutput(cardHTML(idx), true); setupFCKeyboard(); } };
-  window.fcShuffle = () => {
-    for (let i = pairs.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [pairs[i], pairs[j]] = [pairs[j], pairs[i]]; }
-    idx = 0; flipped = false; setOutput(cardHTML(idx), true); setupFCKeyboard();
+function startFlashcardSession(pairs) {
+  // Deep-copy so we don't mutate the cached originals
+  fcSession = {
+    allCards:   pairs.map((p, i) => ({ ...p, id: i })),
+    queue:      pairs.map((p, i) => ({ ...p, id: i })),
+    unknown:    [],
+    known:      [],
+    roundIndex: 0,
+    roundNumber: 1,
+    retest:     false
   };
-  window.fcRestart = () => { idx = 0; flipped = false; setOutput(cardHTML(idx), true); setupFCKeyboard(); };
+  renderFCSession();
 }
 
-function setupFCKeyboard() {
+function renderFCSession() {
+  const s = fcSession;
+
+  // ── All mastered ──────────────────────────────────────
+  if (s.known.length === s.allCards.length) {
+    const pct = 100;
+    setOutput(`
+      <div class="fc-complete">
+        <div class="fc-complete-icon">🎉</div>
+        <h2 class="fc-complete-title">You nailed every card!</h2>
+        <p class="fc-complete-sub">All ${s.allCards.length} cards mastered across ${s.roundNumber} round${s.roundNumber !== 1 ? "s" : ""}.</p>
+        <div class="fc-score-bar-wrap"><div class="fc-score-bar" style="width:${pct}%"></div></div>
+        <button class="fc-restart-full-btn" onclick="startFlashcardSession(currentFlashcards)">↺ Study Again</button>
+      </div>
+    `, true);
+    confetti({ particleCount: 150, spread: 80, origin: { y: 0.6 } });
+    awardXP(20);
+    return;
+  }
+
+  // ── Determine active card ────────────────────────────
+  // Check if it's time for a retest burst
+  if (!s.retest && s.roundIndex > 0 && s.roundIndex % RETEST_INTERVAL === 0 && s.unknown.length > 0) {
+    // Inject retest: shuffle unknowns in at the front of queue right after current position
+    // We'll flag it and handle specially
+    s.retest = true;
+    s.retestQueue = shuffle([...s.unknown]);
+    s.retestIndex = 0;
+    s.unknown = []; // clear; they'll be re-evaluated
+  }
+
+  // Retest mode
+  if (s.retest) {
+    if (s.retestIndex >= s.retestQueue.length) {
+      // Retest done — if all retested cards now known we stay known; unknowns go back
+      s.retest = false;
+      renderFCSession();
+      return;
+    }
+    const card = s.retestQueue[s.retestIndex];
+    renderFCCard(card, true);
+    return;
+  }
+
+  // Normal mode — if queue exhausted, start a new round with unknowns
+  if (s.roundIndex >= s.queue.length) {
+    if (s.unknown.length === 0) {
+      // Everything mastered
+      s.known = s.allCards;
+      renderFCSession();
+      return;
+    }
+    // New round: unknown cards become the queue
+    s.roundNumber++;
+    s.queue = shuffle([...s.unknown]);
+    s.unknown = [];
+    s.roundIndex = 0;
+    renderFCSession();
+    return;
+  }
+
+  const card = s.queue[s.roundIndex];
+  renderFCCard(card, false);
+}
+
+function renderFCCard(card, isRetest) {
+  const s = fcSession;
+  const masteredCount = s.known.length;
+  const totalCount = s.allCards.length;
+  const pct = Math.round((masteredCount / totalCount) * 100);
+
+  // Which position are we at in the visible sequence
+  const pos = isRetest ? s.retestIndex + 1 : s.roundIndex + 1;
+  const total = isRetest ? s.retestQueue.length : s.queue.length;
+  const retestBadge = isRetest
+    ? `<span class="fc-retest-badge">🔁 Retest</span>`
+    : "";
+  const roundLabel = isRetest
+    ? `Reviewing ${s.retestQueue.length} card${s.retestQueue.length !== 1 ? "s" : ""} you missed`
+    : `Round ${s.roundNumber} · ${masteredCount}/${totalCount} mastered`;
+
+  const html = `
+    <div class="fc-wrap">
+      <!-- Progress header -->
+      <div class="fc-top-bar">
+        <div class="fc-progress-bar">
+          <div class="fc-progress-fill" style="width:${pct}%"></div>
+        </div>
+        <p class="fc-counter">${pos} / ${total} ${retestBadge}</p>
+      </div>
+      <p class="fc-round-label">${roundLabel}</p>
+
+      <!-- Mastery chips -->
+      <div class="fc-mastery-row">
+        <span class="fc-chip fc-chip-known">✅ Known: ${masteredCount}</span>
+        <span class="fc-chip fc-chip-unknown">❌ To learn: ${totalCount - masteredCount}</span>
+      </div>
+
+      <!-- Card -->
+      <div class="fc-card" id="fcCard" onclick="fcFlip()">
+        <div class="fc-inner" id="fcInner">
+          <div class="fc-front">
+            <span class="fc-side-label">Question</span>
+            <p class="fc-text">${card.q}</p>
+            <span class="fc-hint">Click to reveal answer</span>
+          </div>
+          <div class="fc-back">
+            <span class="fc-side-label">Answer</span>
+            <p class="fc-text">${card.a}</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Know it / Don't know it buttons (hidden until flipped) -->
+      <div class="fc-verdict" id="fcVerdict" style="display:none">
+        <button class="fc-btn-unknown" onclick="fcMarkUnknown()">
+          <span class="fc-btn-icon">😕</span>
+          <span>Don't Know It</span>
+        </button>
+        <button class="fc-btn-known" onclick="fcMarkKnown()">
+          <span class="fc-btn-icon">💪</span>
+          <span>Know It!</span>
+        </button>
+      </div>
+
+      <!-- Keyboard hint -->
+      <p class="fc-kb-hint">Space = flip &nbsp;·&nbsp; ← Don't know &nbsp;·&nbsp; → Know it</p>
+    </div>
+  `;
+
+  setOutput(html, true);
+  setupFCSessionKeyboard();
+}
+
+// ── Flip ──────────────────────────────────────────────
+window.fcFlip = function() {
+  const inner = document.getElementById("fcInner");
+  if (!inner) return;
+  const isFlipped = inner.classList.toggle("flipped");
+  if (isFlipped) {
+    const verdict = document.getElementById("fcVerdict");
+    if (verdict) verdict.style.display = "flex";
+  }
+};
+
+// ── Mark Known ───────────────────────────────────────
+window.fcMarkKnown = function() {
+  const s = fcSession;
+  const card = s.retest ? s.retestQueue[s.retestIndex] : s.queue[s.roundIndex];
+  if (!card) return;
+
+  // Add to known set (deduplicate)
+  if (!s.known.find(c => c.id === card.id)) {
+    s.known.push(card);
+  }
+
+  if (s.retest) {
+    s.retestIndex++;
+  } else {
+    s.roundIndex++;
+  }
+
+  animateCardOut("right", renderFCSession);
+};
+
+// ── Mark Unknown ─────────────────────────────────────
+window.fcMarkUnknown = function() {
+  const s = fcSession;
+  const card = s.retest ? s.retestQueue[s.retestIndex] : s.queue[s.roundIndex];
+  if (!card) return;
+
+  // Remove from known if it was previously known (regression)
+  s.known = s.known.filter(c => c.id !== card.id);
+
+  // Push to unknown pile for next retest/round
+  if (!s.unknown.find(c => c.id === card.id)) {
+    s.unknown.push(card);
+  }
+
+  if (s.retest) {
+    s.retestIndex++;
+  } else {
+    s.roundIndex++;
+  }
+
+  animateCardOut("left", renderFCSession);
+};
+
+// ── Swipe animation ───────────────────────────────────
+function animateCardOut(direction, cb) {
+  const card = document.getElementById("fcCard");
+  if (!card) { cb(); return; }
+  card.style.transition = "transform 0.25s ease, opacity 0.25s ease";
+  card.style.transform = direction === "right" ? "translateX(120%) rotate(8deg)" : "translateX(-120%) rotate(-8deg)";
+  card.style.opacity = "0";
+  setTimeout(cb, 240);
+}
+
+// ── Keyboard controls ────────────────────────────────
+function setupFCSessionKeyboard() {
   document.onkeydown = (e) => {
     const tag = document.activeElement?.tagName;
     if (tag === "INPUT" || tag === "TEXTAREA") return;
-    if (e.key === "ArrowRight") window.fcNext?.();
-    else if (e.key === "ArrowLeft") window.fcPrev?.();
-    else if (e.key === " ") { e.preventDefault(); window.toggleFlip?.(); }
+    if (e.key === " ") { e.preventDefault(); fcFlip(); }
+    else if (e.key === "ArrowRight") {
+      const inner = document.getElementById("fcInner");
+      if (inner?.classList.contains("flipped")) window.fcMarkKnown();
+    }
+    else if (e.key === "ArrowLeft") {
+      const inner = document.getElementById("fcInner");
+      if (inner?.classList.contains("flipped")) window.fcMarkUnknown();
+    }
   };
+}
+
+// ── Shuffle helper ────────────────────────────────────
+function shuffle(arr) {
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr;
+}
+
+// Legacy renderFlashcardUI kept for edit panel compatibility
+function renderFlashcardUI(pairs) {
+  currentFlashcards = pairs;
+  startFlashcardSession(pairs);
 }
 
 // =========================
@@ -936,18 +1133,23 @@ function awardXP(amount) {
 // THEME TOGGLE
 // =========================
 const themeBtn = document.getElementById("themeToggle");
-if (localStorage.getItem("theme") === "light") {
+const savedTheme = localStorage.getItem("theme") || "dark";
+if (savedTheme === "light") {
   document.body.classList.add("light");
-  themeBtn.textContent = "🌞 Light Mode";
+  if (themeBtn) themeBtn.textContent = "🌞 Light Mode";
 } else {
-  themeBtn.textContent = "🌙 Dark Mode";
+  if (themeBtn) themeBtn.textContent = "🌙 Dark Mode";
 }
-themeBtn.onclick = () => {
-  document.body.classList.toggle("light");
-  const isLight = document.body.classList.contains("light");
-  themeBtn.textContent = isLight ? "🌞 Light Mode" : "🌙 Dark Mode";
-  localStorage.setItem("theme", isLight ? "light" : "dark");
-};
+
+if (themeBtn) {
+  themeBtn.onclick = () => {
+    document.body.classList.toggle("light");
+    document.documentElement.classList.toggle("light");
+    const isLight = document.body.classList.contains("light");
+    themeBtn.textContent = isLight ? "🌞 Light Mode" : "🌙 Dark Mode";
+    localStorage.setItem("theme", isLight ? "light" : "dark");
+  };
+}
 
 // =========================
 // RESET API KEY
