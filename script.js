@@ -271,7 +271,7 @@ function getRelevantChunks(question) {
       return { ...c, score };
     })
     .sort((a, b) => b.score - a.score)
-    .slice(0, 6);
+    .slice(0, 15); // increased from 6
 }
 
 function getAllChunksContext() {
@@ -297,84 +297,98 @@ function getAllChunksContext() {
 }
 
 // =========================
-// CLAUDE API (FOCUSED)
+// CUT-OFF DETECTION
 // =========================
-async function askAI(prompt, systemPrompt) {
-  if (!currentSubject) return "Select a subject first.";
-  if (!currentSubject.chunks.length) return "No study material uploaded yet. Add files first.";
-
-  const chunks = getRelevantChunks(prompt);
-  const context = chunks
-    .filter(c => c.text && c.text.length > 20)
-    .map(c => c.text.split(" ").slice(0, 180).join(" "))
-    .join("\n\n");
-
-  const system = systemPrompt || `
-You are a focused study assistant.
-Only use the provided study material.
-If the answer is not in the material, say: "Not found in your study material."
-Be concise.
-`;
-
-  const fullPrompt = `
-SUBJECT: ${currentSubject.name}
-
-STUDY MATERIAL:
-${context}
-
-TASK:
-${prompt}
-`;
-
-  try {
-    const res = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": CLAUDE_API_KEY,
-        "anthropic-version": "2023-06-01",
-        "anthropic-dangerous-direct-browser-access": "true"
-      },
-      body: JSON.stringify({
-        model: CLAUDE_MODEL,
-        max_tokens: 2000,
-        system,
-        messages: [{ role: "user", content: fullPrompt }]
-      })
-    });
-    const data = await res.json();
-    if (!res.ok) return `API Error: ${data?.error?.message || "Unknown error"}`;
-    return data?.content?.[0]?.text?.trim() || "No response.";
-  } catch (err) {
-    return `Network/API error: ${err.message}`;
-  }
+function looksComplete(text) {
+  const trimmed = text.trimEnd();
+  return /[.!?\n]$/.test(trimmed) ||
+         trimmed.endsWith("</ul>") ||
+         trimmed.endsWith("</p>") ||
+         /^A[:)].+$/m.test(trimmed); // ends with a flashcard answer
 }
 
 // =========================
-// CLAUDE API (FULL CONTEXT)
+// CONTINUE IF CUT OFF
 // =========================
-async function askAIFull(prompt, systemPrompt) {
-  if (!currentSubject) return "Select a subject first.";
-  if (!currentSubject.chunks.length) return "No study material uploaded yet. Add files first.";
+async function continueIfCutOff(result, originalContext, taskPrompt, systemPrompt) {
+  if (looksComplete(result)) return result;
 
+  const userWantsContinue = confirm(
+    "⚠️ The response looks like it may have been cut off.\n\nClick OK to continue generating the rest, or Cancel to keep what you have."
+  );
+
+  if (!userWantsContinue) return result;
+
+  document.getElementById("output").innerHTML =
+    `<p style="opacity:0.5">⏳ Continuing generation...</p>`;
+
+  let fullResult = result;
+  let attempts = 0;
+  const MAX_CONTINUES = 4;
+
+  while (!looksComplete(fullResult) && attempts < MAX_CONTINUES) {
+    try {
+      const contRes = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-api-key": CLAUDE_API_KEY,
+          "anthropic-version": "2023-06-01",
+          "anthropic-dangerous-direct-browser-access": "true"
+        },
+        body: JSON.stringify({
+          model: CLAUDE_MODEL,
+          max_tokens: 4000,
+          system: systemPrompt || "You are a study assistant. Continue exactly where the previous output left off. Do not repeat anything already written.",
+          messages: [
+            {
+              role: "user",
+              content: `SUBJECT: ${currentSubject.name}\n\nCONTEXT:\n${originalContext}\n\nTASK: ${taskPrompt}\n\nCONTINUE FROM HERE (do not repeat, just continue):\n${fullResult}`
+            }
+          ]
+        })
+      });
+
+      const contData = await contRes.json();
+      if (!contRes.ok) break;
+
+      const continuation = contData?.content?.[0]?.text?.trim() || "";
+      if (!continuation) break;
+
+      fullResult += "\n" + continuation;
+      attempts++;
+
+      if (looksComplete(fullResult)) break;
+
+      if (attempts < MAX_CONTINUES) {
+        const keepGoing = confirm(
+          `⚠️ Still looks incomplete. Continue again? (${MAX_CONTINUES - attempts} attempt${MAX_CONTINUES - attempts !== 1 ? "s" : ""} remaining)`
+        );
+        if (!keepGoing) break;
+      }
+    } catch (err) {
+      console.error("Continue error:", err);
+      break;
+    }
+  }
+
+  return fullResult;
+}
+
+// =========================
+// MAP-REDUCE AI (full material, batched)
+// =========================
+async function mapReduceAI(taskPrompt, systemPrompt) {
   const context = getAllChunksContext();
-  const system = systemPrompt || `
-You are a study assistant.
-Use ONLY the provided material.
-Be complete and accurate.
-`;
+  const BATCH_SIZE = 6000; // chars per batch
+  const batches = [];
 
-  const fullPrompt = `
-SUBJECT: ${currentSubject.name}
+  for (let i = 0; i < context.length; i += BATCH_SIZE) {
+    batches.push(context.slice(i, i + BATCH_SIZE));
+  }
 
-STUDY MATERIAL:
-${context}
-
-TASK:
-${prompt}
-`;
-
-  try {
+  // Single batch — skip map-reduce overhead
+  if (batches.length === 1) {
     const res = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: {
@@ -386,20 +400,152 @@ ${prompt}
       body: JSON.stringify({
         model: CLAUDE_MODEL,
         max_tokens: 4000,
+        system: systemPrompt || "You are a study assistant. Use ONLY the provided material. Be complete and accurate.",
+        messages: [{ role: "user", content: `SUBJECT: ${currentSubject.name}\n\nSTUDY MATERIAL:\n${batches[0]}\n\nTASK:\n${taskPrompt}` }]
+      })
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data?.error?.message || "API error");
+    let result = data?.content?.[0]?.text?.trim() || "";
+    result = await continueIfCutOff(result, batches[0], taskPrompt, systemPrompt);
+    return result;
+  }
+
+  // MAP phase — extract key content from each batch
+  let partialResults = [];
+  for (let i = 0; i < batches.length; i++) {
+    document.getElementById("output").innerHTML =
+      `<p style="opacity:0.5">⏳ Processing section ${i + 1} of ${batches.length}...</p>`;
+
+    const res = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": CLAUDE_API_KEY,
+        "anthropic-version": "2023-06-01",
+        "anthropic-dangerous-direct-browser-access": "true"
+      },
+      body: JSON.stringify({
+        model: CLAUDE_MODEL,
+        max_tokens: 1500,
+        system: "You are a study assistant. Extract and preserve ALL key facts, terms, definitions, dates, formulas, and concepts from this material section. Be thorough — nothing important should be lost.",
+        messages: [{
+          role: "user",
+          content: `SUBJECT: ${currentSubject.name}\n\nMATERIAL SECTION ${i + 1} of ${batches.length}:\n${batches[i]}\n\nTASK: ${taskPrompt}`
+        }]
+      })
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data?.error?.message || "API error");
+    partialResults.push(data?.content?.[0]?.text?.trim() || "");
+  }
+
+  // REDUCE phase — combine all partial results into final output
+  document.getElementById("output").innerHTML =
+    `<p style="opacity:0.5">⏳ Combining all sections into final output...</p>`;
+
+  const combined = partialResults
+    .map((r, i) => `--- Section ${i + 1} ---\n${r}`)
+    .join("\n\n");
+
+  const reduceRes = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-api-key": CLAUDE_API_KEY,
+      "anthropic-version": "2023-06-01",
+      "anthropic-dangerous-direct-browser-access": "true"
+    },
+    body: JSON.stringify({
+      model: CLAUDE_MODEL,
+      max_tokens: 4000,
+      system: systemPrompt || "You are a study assistant. Combine the section results into one complete, well-organized final output. Do not lose any facts or cards.",
+      messages: [{
+        role: "user",
+        content: `SUBJECT: ${currentSubject.name}\n\nSECTION RESULTS:\n${combined}\n\nFINAL TASK: ${taskPrompt}`
+      }]
+    })
+  });
+
+  const reduceData = await reduceRes.json();
+  if (!reduceRes.ok) throw new Error(reduceData?.error?.message || "API error");
+
+  let result = reduceData?.content?.[0]?.text?.trim() || "";
+
+  // Cut-off check on final combined result
+  result = await continueIfCutOff(result, combined, taskPrompt, systemPrompt);
+
+  return result;
+}
+
+// =========================
+// CLAUDE API (FOCUSED — smart retrieval)
+// =========================
+async function askAI(prompt, systemPrompt) {
+  if (!currentSubject) return "Select a subject first.";
+  if (!currentSubject.chunks.length) return "No study material uploaded yet. Add files first.";
+
+  const chunks = getRelevantChunks(prompt);
+  const context = chunks
+    .filter(c => c.text && c.text.length > 20)
+    .map(c => c.text.split(" ").slice(0, 300).join(" ")) // increased from 180
+    .join("\n\n");
+
+  const system = systemPrompt || `
+You are a focused study assistant.
+Only use the provided study material.
+If the answer is not in the material, say: "Not found in your study material."
+Be concise.
+`;
+
+  const fullPrompt = `SUBJECT: ${currentSubject.name}\n\nSTUDY MATERIAL:\n${context}\n\nTASK:\n${prompt}`;
+
+  try {
+    const res = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": CLAUDE_API_KEY,
+        "anthropic-version": "2023-06-01",
+        "anthropic-dangerous-direct-browser-access": "true"
+      },
+      body: JSON.stringify({
+        model: CLAUDE_MODEL,
+        max_tokens: 2000, // increased from 500
         system,
         messages: [{ role: "user", content: fullPrompt }]
       })
     });
     const data = await res.json();
     if (!res.ok) return `API Error: ${data?.error?.message || "Unknown error"}`;
-    return data?.content?.[0]?.text?.trim() || "No response.";
+
+    let result = data?.content?.[0]?.text?.trim() || "No response.";
+
+    // Cut-off detection
+    result = await continueIfCutOff(result, context, prompt, system);
+
+    return result;
   } catch (err) {
     return `Network/API error: ${err.message}`;
   }
 }
 
 // =========================
-// CACHE BAR (legacy stub — kept so old references don't break)
+// CLAUDE API (FULL CONTEXT — map-reduce)
+// =========================
+async function askAIFull(prompt, systemPrompt) {
+  if (!currentSubject) return "Select a subject first.";
+  if (!currentSubject.chunks.length) return "No study material uploaded yet. Add files first.";
+
+  try {
+    return await mapReduceAI(prompt, systemPrompt);
+  } catch (err) {
+    return `Error: ${err.message}`;
+  }
+}
+
+// =========================
+// CACHE BAR (legacy stub)
 // =========================
 function hideCacheBar() {
   const bar = document.getElementById("cacheBar");
@@ -408,20 +554,17 @@ function hideCacheBar() {
 
 // =========================
 // INLINE RESULT BAR
-// Injects a "Showing saved X / Regenerate" bar at top of #output
 // =========================
 function showResultWithBar(btnId, renderer, value) {
   activeTool = btnId;
   hideCacheBar();
 
-  // Render content first
   if (renderer) {
     renderer(value);
   } else {
     setOutput(value);
   }
 
-  // Inject bar at top of output
   const outputDiv = document.getElementById("output");
   const existing = document.getElementById("inlineCacheBar");
   if (existing) existing.remove();
@@ -471,14 +614,12 @@ async function runTool(prompt, btnId, renderer) {
   const cacheKey = CACHE_KEYS[btnId];
   lastBtnId = btnId;
 
-  // Already cached — show it
   if (cacheKey && currentSubject.cache[cacheKey]) {
     hideEditPanel();
     showResultWithBar(btnId, renderer, currentSubject.cache[cacheKey]);
     return;
   }
 
-  // Generate fresh
   activeTool = btnId;
   const btn = document.getElementById(btnId);
   btn.disabled = true;
@@ -501,7 +642,7 @@ async function runTool(prompt, btnId, renderer) {
 }
 
 // =========================
-// TOOL RUNNER FULL — full context, with toggle
+// TOOL RUNNER FULL — full context (map-reduce), with toggle
 // =========================
 async function runToolFull(prompt, btnId, renderer) {
   if (!currentSubject) { alert("Select a subject first."); return; }
@@ -511,7 +652,6 @@ async function runToolFull(prompt, btnId, renderer) {
   const cacheKey = CACHE_KEYS[btnId];
   lastBtnId = btnId;
 
-  // Already cached — show it
   if (cacheKey && currentSubject.cache[cacheKey]) {
     hideEditPanel();
     showResultWithBar(btnId, renderer, currentSubject.cache[cacheKey]);
@@ -520,7 +660,6 @@ async function runToolFull(prompt, btnId, renderer) {
     return;
   }
 
-  // Generate fresh
   activeTool = btnId;
   const btn = document.getElementById(btnId);
   btn.disabled = true;
@@ -712,7 +851,6 @@ function startFlashcardSession(pairs) {
 function renderFCSession() {
   const s = fcSession;
 
-  // All mastered
   if (s.known.length === s.allCards.length) {
     const pct = 100;
     setOutput(`
@@ -729,7 +867,6 @@ function renderFCSession() {
     return;
   }
 
-  // Retest burst check
   if (!s.retest && s.roundIndex > 0 && s.roundIndex % RETEST_INTERVAL === 0 && s.unknown.length > 0) {
     s.retest = true;
     s.retestQueue = shuffle([...s.unknown]);
@@ -737,7 +874,6 @@ function renderFCSession() {
     s.unknown = [];
   }
 
-  // Retest mode
   if (s.retest) {
     if (s.retestIndex >= s.retestQueue.length) {
       s.retest = false;
@@ -749,7 +885,6 @@ function renderFCSession() {
     return;
   }
 
-  // Normal — queue exhausted
   if (s.roundIndex >= s.queue.length) {
     if (s.unknown.length === 0) {
       s.known = s.allCards;
@@ -1216,5 +1351,8 @@ document.getElementById("startTimer").onclick = () => {
 };
 document.getElementById("pauseTimer").onclick = () => { clearInterval(timerInterval); timerRunning = false; };
 document.getElementById("resetTimer").onclick = () => { clearInterval(timerInterval); timerRunning = false; timerSeconds = 25 * 60; updateTimerDisplay(); };
-// Initial render
+
+// =========================
+// INITIAL RENDER — load saved subjects on page load
+// =========================
 renderSubjects();
