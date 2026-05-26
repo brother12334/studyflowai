@@ -1,7 +1,13 @@
 // =========================
+// SUPABASE CONFIG
+// Replace these two values with your own from Supabase → Settings → API
+// =========================
+const SUPABASE_URL    = "https://pdteyiowlyvlqdqdhhkg.supabase.co";
+const SUPABASE_ANON   = "sb_publishable_RUhKJwZqo9L9dFVcTU3eaA_mrydsyvq";
+
+// =========================
 // AUTH & SYNC SYSTEM
 // =========================
-
 const AUTH_KEY  = "studyapp_auth";
 const SYNC_KEY  = "subjects_savedAt";
 let currentUser = null; // { username, apiKey }
@@ -11,34 +17,58 @@ let CLAUDE_API_KEY = "";
 const CLAUDE_MODEL  = "claude-haiku-4-5-20251001";
 
 // =========================
-// CLOUD STORAGE HELPERS
+// SUPABASE HELPERS
 // =========================
-
-function hashUsername(username) {
-  let h = 0;
-  for (let i = 0; i < username.length; i++) {
-    h = Math.imul(31, h) + username.charCodeAt(i) | 0;
-  }
-  return "studyflow_user_" + Math.abs(h).toString(36);
-}
 
 async function cloudSave() {
   if (!currentUser) return;
-  const key     = hashUsername(currentUser.username);
-  const payload = JSON.stringify({ username: currentUser.username, subjects, savedAt: Date.now() });
+  const now = Date.now();
   try {
-    await window.storage.set(key, payload, true);
-    localStorage.setItem(SYNC_KEY, Date.now().toString());
-  } catch (e) { console.warn("Cloud save failed:", e); }
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/user_data`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "apikey": SUPABASE_ANON,
+        "Authorization": `Bearer ${SUPABASE_ANON}`,
+        "Prefer": "resolution=merge-duplicates"   // upsert
+      },
+      body: JSON.stringify({
+        username: currentUser.username,
+        subjects: subjects,
+        saved_at: now
+      })
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      console.warn("Cloud save failed:", err);
+      return;
+    }
+    localStorage.setItem(SYNC_KEY, now.toString());
+  } catch (e) {
+    console.warn("Cloud save error:", e);
+  }
 }
 
 async function cloudLoad(username) {
-  const key = hashUsername(username);
   try {
-    const result = await window.storage.get(key, true);
-    if (result && result.value) return JSON.parse(result.value);
-  } catch (e) { console.warn("Cloud load failed:", e); }
-  return null;
+    const res = await fetch(
+      `${SUPABASE_URL}/rest/v1/user_data?username=eq.${encodeURIComponent(username)}&select=subjects,saved_at`,
+      {
+        headers: {
+          "apikey": SUPABASE_ANON,
+          "Authorization": `Bearer ${SUPABASE_ANON}`
+        }
+      }
+    );
+    if (!res.ok) return null;
+    const rows = await res.json();
+    if (!rows || rows.length === 0) return null;
+    // Supabase stores jsonb as a real JS object — no need to JSON.parse
+    return { subjects: rows[0].subjects, savedAt: rows[0].saved_at };
+  } catch (e) {
+    console.warn("Cloud load error:", e);
+    return null;
+  }
 }
 
 function scheduleSyncSave() {
@@ -49,6 +79,10 @@ function scheduleSyncSave() {
 // =========================
 // SAVE (local + cloud)
 // =========================
+function save() {
+  localStorage.setItem("subjects", JSON.stringify(subjects));
+  scheduleSyncSave();
+}
 function save() {
   localStorage.setItem("subjects", JSON.stringify(subjects));
   scheduleSyncSave();
@@ -357,9 +391,9 @@ function addUserBadge(username) {
 
 // =========================
 // BOOT — check saved auth
+// Replace the existing boot() IIFE in script.js with this one
 // =========================
 (async function boot() {
-  // Hide app until logged in
   const app = document.querySelector(".app");
   if (app) app.style.display = "none";
 
@@ -372,12 +406,14 @@ function addUserBadge(username) {
         CLAUDE_API_KEY = auth.apiKey;
         subjects       = JSON.parse(localStorage.getItem("subjects")) || [];
 
-        // Background sync: pull cloud if newer
+        // Always attempt cloud load — on a new device local is empty
         const cloudData = await cloudLoad(auth.username);
-        if (cloudData && Array.isArray(cloudData.subjects)) {
+        if (cloudData && Array.isArray(cloudData.subjects) && cloudData.subjects.length > 0) {
           const cloudTime = cloudData.savedAt || 0;
           const localTime = parseInt(localStorage.getItem(SYNC_KEY) || "0");
-          if (cloudTime > localTime) {
+
+          // Load cloud if: no local subjects at all, OR cloud is strictly newer
+          if (subjects.length === 0 || cloudTime > localTime) {
             subjects = cloudData.subjects;
             localStorage.setItem("subjects", JSON.stringify(subjects));
             localStorage.setItem(SYNC_KEY, cloudTime.toString());
