@@ -16,6 +16,302 @@ let CLAUDE_API_KEY = "";
 const CLAUDE_MODEL = "claude-haiku-4-5-20251001";
 
 // =========================
+// FLASHCARD HTML EXPORT
+// =========================
+function downloadFlashcardsHTML() {
+  if (!currentFlashcards || currentFlashcards.length === 0) {
+    showToast("No flashcards to download. Generate flashcards first.", "#f87171");
+    return;
+  }
+
+  const subjectName = currentSubject?.name || "Flashcards";
+  const date = new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
+
+  const cardsHTML = currentFlashcards.map((card, i) => `
+    <div class="card" id="card-${i}">
+      <div class="card-inner" id="inner-${i}">
+        <div class="card-front">
+          <span class="card-num">${i + 1} / ${currentFlashcards.length}</span>
+          <p class="card-text">${card.q}</p>
+          <span class="card-hint">click to flip</span>
+        </div>
+        <div class="card-back">
+          <span class="card-num">${i + 1} / ${currentFlashcards.length}</span>
+          <p class="card-text">${card.a}</p>
+          <span class="card-hint">click to flip back</span>
+        </div>
+      </div>
+    </div>`).join("");
+
+  const listHTML = currentFlashcards.map((card, i) => `
+    <div class="list-card">
+      <div class="list-q">Q${i + 1}. ${card.q}</div>
+      <div class="list-a">A: ${card.a}</div>
+    </div>`).join("");
+
+  const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${subjectName} — Flashcards</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Sora:wght@400;600;700&family=Inter:wght@400;500&display=swap');
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Inter', sans-serif;
+      background: #0a0a0a;
+      color: #f0f0f0;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 40px 20px;
+    }
+    header { text-align: center; margin-bottom: 36px; }
+    header h1 { font-family: 'Sora', sans-serif; font-size: 1.8rem; font-weight: 700; margin-bottom: 6px; }
+    header p { color: #555; font-size: 0.85rem; }
+    .controls {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 28px;
+      flex-wrap: wrap;
+      justify-content: center;
+    }
+    .btn {
+      padding: 9px 20px;
+      border-radius: 10px;
+      border: 1px solid rgba(255,255,255,0.15);
+      background: rgba(255,255,255,0.07);
+      color: #ccc;
+      font-size: 0.88rem;
+      font-family: inherit;
+      cursor: pointer;
+      transition: background 0.2s, color 0.2s;
+    }
+    .btn:hover { background: rgba(255,255,255,0.13); color: #fff; }
+    .btn.primary { background: #fff; color: #000; border-color: #fff; font-weight: 600; }
+    .btn.primary:hover { background: #e0e0e0; }
+    .counter { color: #555; font-size: 0.88rem; min-width: 80px; text-align: center; }
+    .progress-wrap {
+      width: 100%;
+      max-width: 520px;
+      height: 4px;
+      background: rgba(255,255,255,0.08);
+      border-radius: 4px;
+      margin-bottom: 28px;
+      overflow: hidden;
+    }
+    .progress-fill {
+      height: 100%;
+      background: #fff;
+      border-radius: 4px;
+      transition: width 0.3s ease;
+    }
+    .card-stage { width: 100%; max-width: 520px; perspective: 1200px; margin-bottom: 24px; }
+    .card { display: none; cursor: pointer; }
+    .card.active { display: block; }
+    .card-inner {
+      width: 100%;
+      min-height: 280px;
+      position: relative;
+      transform-style: preserve-3d;
+      transition: transform 0.45s cubic-bezier(0.4, 0, 0.2, 1);
+      border-radius: 18px;
+    }
+    .card-inner.flipped { transform: rotateY(180deg); }
+    .card-front, .card-back {
+      position: absolute;
+      inset: 0;
+      backface-visibility: hidden;
+      -webkit-backface-visibility: hidden;
+      border-radius: 18px;
+      padding: 36px 32px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      gap: 16px;
+      min-height: 280px;
+    }
+    .card-front { background: #141414; border: 1px solid rgba(255,255,255,0.1); }
+    .card-back { background: #181825; border: 1px solid rgba(120,120,255,0.2); transform: rotateY(180deg); }
+    .card-num { color: #444; font-size: 0.75rem; letter-spacing: 0.08em; }
+    .card-text { font-size: 1.15rem; line-height: 1.6; color: #f0f0f0; font-family: 'Sora', sans-serif; }
+    .card-back .card-text { color: #c8c8ff; }
+    .card-hint { color: #333; font-size: 0.75rem; margin-top: 8px; }
+    .verdict {
+      display: none;
+      justify-content: center;
+      gap: 14px;
+      margin-top: 20px;
+      flex-wrap: wrap;
+    }
+    .verdict.visible { display: flex; }
+    .verdict-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 14px 32px;
+      border-radius: 14px;
+      font-size: 1rem;
+      font-weight: 700;
+      font-family: inherit;
+      cursor: pointer;
+      min-width: 160px;
+      justify-content: center;
+      transition: transform 0.15s, opacity 0.15s;
+    }
+    .verdict-btn:hover { transform: translateY(-2px); opacity: 0.9; }
+    .verdict-btn.unknown {
+      border: 2px solid rgba(248,113,113,0.5);
+      background: rgba(248,113,113,0.12);
+      color: #f87171;
+    }
+    .verdict-btn.known {
+      border: 2px solid rgba(74,222,128,0.5);
+      background: rgba(74,222,128,0.12);
+      color: #4ade80;
+    }
+    .score-row {
+      display: flex;
+      gap: 12px;
+      margin-top: 4px;
+      margin-bottom: 16px;
+      justify-content: center;
+      flex-wrap: wrap;
+    }
+    .chip {
+      padding: 5px 14px;
+      border-radius: 20px;
+      font-size: 0.8rem;
+      font-weight: 600;
+    }
+    .chip.known { background: rgba(74,222,128,0.1); color: #4ade80; border: 1px solid rgba(74,222,128,0.25); }
+    .chip.unknown { background: rgba(248,113,113,0.1); color: #f87171; border: 1px solid rgba(248,113,113,0.25); }
+    .all-cards { width: 100%; max-width: 520px; display: none; flex-direction: column; gap: 12px; margin-top: 12px; }
+    .all-cards.visible { display: flex; }
+    .list-card { background: #111; border: 1px solid rgba(255,255,255,0.08); border-radius: 14px; padding: 18px 22px; }
+    .list-q { font-weight: 600; margin-bottom: 8px; font-size: 0.92rem; }
+    .list-a { color: #888; font-size: 0.88rem; line-height: 1.5; }
+    footer { margin-top: 48px; color: #2a2a2a; font-size: 0.75rem; text-align: center; }
+    @media (max-width: 560px) {
+      .card-text { font-size: 1rem; }
+      .card-front, .card-back { padding: 28px 22px; }
+      .verdict-btn { min-width: 130px; padding: 12px 20px; font-size: 0.92rem; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>📚 ${subjectName}</h1>
+    <p>Flashcards · ${currentFlashcards.length} cards · ${date}</p>
+  </header>
+
+  <div class="controls">
+    <button class="btn" onclick="prev()">← Prev</button>
+    <span class="counter" id="counter">1 / ${currentFlashcards.length}</span>
+    <button class="btn" onclick="next()">Next →</button>
+    <button class="btn primary" onclick="flipCard()">Flip</button>
+    <button class="btn" onclick="toggleList()" id="listToggleBtn">☰ All Cards</button>
+  </div>
+
+  <div class="progress-wrap">
+    <div class="progress-fill" id="progressFill" style="width:${(1 / currentFlashcards.length * 100).toFixed(1)}%"></div>
+  </div>
+
+  <div class="score-row">
+    <span class="chip known" id="knownChip">✅ Known: 0</span>
+    <span class="chip unknown" id="unknownChip">❌ To learn: ${currentFlashcards.length}</span>
+  </div>
+
+  <div class="card-stage">
+    ${cardsHTML}
+  </div>
+
+  <div class="verdict" id="verdict">
+    <button class="verdict-btn unknown" onclick="markUnknown()">😕 Still Learning</button>
+    <button class="verdict-btn known" onclick="markKnown()">💪 Know It!</button>
+  </div>
+
+  <div class="all-cards" id="allCards">
+    ${listHTML}
+  </div>
+
+  <footer>Generated by StudyFlow AI</footer>
+
+  <script>
+    let current = 0;
+    const total = ${currentFlashcards.length};
+    const cards = document.querySelectorAll('.card');
+    let known = 0;
+
+    function show(idx) {
+      cards.forEach(c => c.classList.remove('active'));
+      const prevInner = document.getElementById('inner-' + current);
+      if (prevInner) prevInner.classList.remove('flipped');
+      document.getElementById('verdict').classList.remove('visible');
+      current = ((idx % total) + total) % total;
+      cards[current].classList.add('active');
+      document.getElementById('counter').textContent = (current + 1) + ' / ' + total;
+      document.getElementById('progressFill').style.width = ((current + 1) / total * 100).toFixed(1) + '%';
+    }
+
+    function flipCard() {
+      const inner = document.getElementById('inner-' + current);
+      if (!inner) return;
+      const flipped = inner.classList.toggle('flipped');
+      document.getElementById('verdict').classList.toggle('visible', flipped);
+    }
+
+    function markKnown() {
+      known = Math.min(known + 1, total);
+      document.getElementById('knownChip').textContent = '✅ Known: ' + known;
+      document.getElementById('unknownChip').textContent = '❌ To learn: ' + (total - known);
+      next();
+    }
+
+    function markUnknown() {
+      next();
+    }
+
+    function next() { show(current + 1); }
+    function prev() { show(current - 1); }
+
+    function toggleList() {
+      const list = document.getElementById('allCards');
+      const btn  = document.getElementById('listToggleBtn');
+      const visible = list.classList.toggle('visible');
+      btn.textContent = visible ? '✕ Hide List' : '☰ All Cards';
+    }
+
+    cards.forEach(c => c.addEventListener('click', flipCard));
+    document.addEventListener('keydown', e => {
+      if (e.key === 'ArrowRight') next();
+      else if (e.key === 'ArrowLeft') prev();
+      else if (e.key === ' ') { e.preventDefault(); flipCard(); }
+      else if (e.key === 'k' || e.key === 'K') { const inner = document.getElementById('inner-' + current); if (inner?.classList.contains('flipped')) markKnown(); }
+      else if (e.key === 'u' || e.key === 'U') { const inner = document.getElementById('inner-' + current); if (inner?.classList.contains('flipped')) markUnknown(); }
+    });
+
+    show(0);
+  </script>
+</body>
+</html>`;
+
+  const blob = new Blob([html], { type: "text/html" });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement("a");
+  a.href     = url;
+  a.download = `${subjectName.replace(/[^a-z0-9]/gi, "_")}_flashcards.html`;
+  a.click();
+  URL.revokeObjectURL(url);
+  showToast("⬇️ Flashcards downloaded!");
+}
+
+// =========================
 // SUPABASE HELPERS
 // =========================
 async function cloudSave() {
@@ -1072,12 +1368,15 @@ function showFCResumePrompt(pairs) {
       <p style="margin:0;opacity:0.6;font-size:0.9rem;">
         You had mastered <strong>${done} / ${total}</strong> cards — Round ${p.roundNumber}
       </p>
-      <div style="display:flex;gap:12px;flex-wrap:wrap;justify-content:center;">
-        <button onclick="resumeFCSession()" style="padding:12px 28px;border-radius:10px;border:none;
-          background:#fff;color:#000;font-weight:700;font-size:0.95rem;cursor:pointer;">▶ Continue</button>
-        <button onclick="startFlashcardSession(currentFlashcards)" style="padding:12px 28px;border-radius:10px;
-          border:1px solid rgba(255,255,255,0.2);background:transparent;color:#ccc;font-size:0.95rem;cursor:pointer;">
-          ↺ Start Over</button>
+      <div style="display:flex;justify-content:center;gap:10px;margin-top:16px;flex-wrap:wrap;">
+        <button onclick="startFlashcardSession(currentFlashcards)" style="padding:7px 18px;border-radius:8px;
+          border:1px solid rgba(255,255,255,0.12);background:transparent;color:#555;
+          font-size:0.8rem;cursor:pointer;transition:color 0.2s;" onmouseover="this.style.color='#999'"
+          onmouseout="this.style.color='#555'">↺ Restart</button>
+        <button onclick="downloadFlashcardsHTML()" style="padding:7px 18px;border-radius:8px;
+          border:1px solid rgba(255,255,255,0.12);background:transparent;color:#555;
+          font-size:0.8rem;cursor:pointer;transition:color 0.2s;" onmouseover="this.style.color='#999'"
+          onmouseout="this.style.color='#555'">⬇️ Download</button>
       </div>
     </div>`;
   setOutput(html, true);
