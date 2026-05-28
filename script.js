@@ -1360,19 +1360,29 @@ function showFCResumePrompt(pairs) {
   const p     = currentSubject._fcProgress;
   const done  = p.knownIds.length;
   const total = p.allCards.length;
+  const pct   = Math.round((done / total) * 100);
   const html  = `
     <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;
       gap:18px;padding:48px 24px;text-align:center;">
       <div style="font-size:2.5rem;">🃏</div>
       <h2 style="margin:0;font-size:1.3rem;font-weight:700;">Resume your session?</h2>
       <p style="margin:0;opacity:0.6;font-size:0.9rem;">
-        You had mastered <strong>${done} / ${total}</strong> cards — Round ${p.roundNumber}
+        You've mastered <strong>${done} / ${total}</strong> cards — Round ${p.roundNumber}
       </p>
-      <div style="display:flex;justify-content:center;gap:10px;margin-top:16px;flex-wrap:wrap;">
+      <div style="width:100%;max-width:300px;height:6px;background:rgba(255,255,255,0.08);
+        border-radius:4px;overflow:hidden;">
+        <div style="height:100%;width:${pct}%;background:#4ade80;border-radius:4px;transition:width 0.4s;"></div>
+      </div>
+      <button onclick="resumeFCSession()" style="padding:12px 32px;border-radius:10px;
+        border:2px solid rgba(74,222,128,0.4);background:rgba(74,222,128,0.1);
+        color:#4ade80;font-size:1rem;font-weight:700;cursor:pointer;
+        transition:opacity 0.2s;" onmouseover="this.style.opacity='0.8'"
+        onmouseout="this.style.opacity='1'">▶ Resume Session</button>
+      <div style="display:flex;justify-content:center;gap:10px;flex-wrap:wrap;">
         <button onclick="startFlashcardSession(currentFlashcards)" style="padding:7px 18px;border-radius:8px;
           border:1px solid rgba(255,255,255,0.12);background:transparent;color:#555;
           font-size:0.8rem;cursor:pointer;transition:color 0.2s;" onmouseover="this.style.color='#999'"
-          onmouseout="this.style.color='#555'">↺ Restart</button>
+          onmouseout="this.style.color='#555'">↺ Restart from scratch</button>
         <button onclick="downloadFlashcardsHTML()" style="padding:7px 18px;border-radius:8px;
           border:1px solid rgba(255,255,255,0.12);background:transparent;color:#555;
           font-size:0.8rem;cursor:pointer;transition:color 0.2s;" onmouseover="this.style.color='#999'"
