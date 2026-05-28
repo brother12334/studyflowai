@@ -71,7 +71,7 @@
       setTimeout(() => {
         taglineEl.textContent = "";
         taglineEl.style.color = "rgba(180,170,255,0.5)";
-        typeWrite(taglineEl, text2, 45, () => {
+        typeWrite(taglineEl, text2, 80, () => {
           // Remove cursor after second line done
           setTimeout(() => {
             if (cursorEl) cursorEl.style.display = "none";
