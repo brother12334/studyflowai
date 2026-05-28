@@ -71,15 +71,7 @@
       setTimeout(() => {
         taglineEl.textContent = "";
         taglineEl.style.color = "rgba(180,170,255,0.5)";
-        typeWrite(taglineEl, text2, 80, () => {
-          // Remove cursor after second line done
-          setTimeout(() => {
-            if (cursorEl) cursorEl.style.display = "none";
-          }, 600);
-        });
-      }, 800);
-    });
-  }, 1500);
+       }, 5800);
 
   // --- Dismiss after bar completes ---
   // Bar animation: 2s delay + 1.8s fill = 3.8s total
@@ -90,5 +82,5 @@
       cancelAnimationFrame(raf);
       splash.remove();
     }, 950);
-  }, 4200);
+  }, 5800);
 })();
