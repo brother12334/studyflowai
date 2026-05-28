@@ -1,18 +1,15 @@
 // =========================
 // INTRO SPLASH ANIMATION
 // =========================
-
 (function () {
   // --- Particle canvas ---
   const canvas = document.getElementById("introCanvas");
   const ctx = canvas.getContext("2d");
   let W, H, particles, raf;
-
   function resize() {
     W = canvas.width  = window.innerWidth;
     H = canvas.height = window.innerHeight;
   }
-
   function makeParticle() {
     return {
       x: Math.random() * W,
@@ -24,11 +21,9 @@
       hue: Math.random() > 0.5 ? 260 : 240,
     };
   }
-
   function initParticles() {
     particles = Array.from({ length: 120 }, makeParticle);
   }
-
   function drawParticles() {
     ctx.clearRect(0, 0, W, H);
     for (const p of particles) {
@@ -44,7 +39,6 @@
     }
     raf = requestAnimationFrame(drawParticles);
   }
-
   resize();
   window.addEventListener("resize", () => { resize(); initParticles(); });
   initParticles();
@@ -55,7 +49,6 @@
   const cursorEl  = document.querySelector(".intro-cursor");
   const text1 = "Your AI-powered study companion.";
   const text2 = "Created by Phineas Yablon";
-
   function typeWrite(el, text, speed, cb) {
     let i = 0;
     const interval = setInterval(() => {
@@ -71,10 +64,19 @@
       setTimeout(() => {
         taglineEl.textContent = "";
         taglineEl.style.color = "rgba(180,170,255,0.5)";
-       }, 5800);
+        typeWrite(taglineEl, text2, 45, () => {
+          // Hold 1s so user can read it, then hide cursor
+          setTimeout(() => {
+            if (cursorEl) cursorEl.style.display = "none";
+          }, 1000);
+        });
+      }, 800);
+    });
+  }, 1500);
 
   // --- Dismiss after bar completes ---
   // Bar animation: 2s delay + 1.8s fill = 3.8s total
+  // Extra time accounts for both typewriter lines + 1s hold on "Created by Phineas"
   setTimeout(() => {
     const splash = document.getElementById("introSplash");
     splash.classList.add("fade-out");
