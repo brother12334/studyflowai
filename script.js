@@ -687,7 +687,6 @@ const CACHE_KEYS = {
   studyPlanBtn:    "studyPlan",
   eli5Btn:         "eli5",
   mnemonicBtn:     "mnemonics",
-  practiceTestBtn: "practiceTest",
   weaknessBtn:     "weakness"
 };
 
@@ -698,7 +697,6 @@ const TOOL_NAMES = {
   studyPlanBtn:    "Study Plan",
   eli5Btn:         "ELI5",
   mnemonicBtn:     "Memory Tricks",
-  practiceTestBtn: "Practice Test",
   weaknessBtn:     "Weak Spots"
 };
 
@@ -1117,7 +1115,7 @@ async function runToolFull(prompt, btnId, renderer) {
     hideEditPanel();
     showResultWithBar(btnId, renderer, currentSubject.cache[cacheKey]);
     if (btnId === "flashcardBtn") showEditPanel("flashcard");
-    else if (btnId === "quizBtn" || btnId === "practiceTestBtn") showEditPanel("quiz");
+    else if (btnId === "quizBtn") showEditPanel("quiz");
     return;
   }
   activeTool = btnId;
@@ -1182,8 +1180,7 @@ document.getElementById("editInput").addEventListener("keydown", (e) => { if (e.
 document.getElementById("editCloseBtn").onclick = hideEditPanel;
 
 // =========================
-// EDIT MESSAGE — FIXED
-// System prompt passed correctly; API called directly (not via askAI)
+// EDIT MESSAGE
 // =========================
 async function sendEditMessage() {
   const input = document.getElementById("editInput");
@@ -1223,7 +1220,6 @@ Mark exactly one answer per question with (correct) after it. Output ALL questio
       if (pairs.length > 0) {
         currentFlashcards = pairs;
         if (currentSubject?.cache) { currentSubject.cache["flashcards"] = text; save(); }
-        // Show resume prompt if there's progress to preserve, otherwise restart
         if (hasFCProgress()) {
           showFCResumePrompt(pairs);
         } else {
@@ -1246,12 +1242,10 @@ Mark exactly one answer per question with (correct) after it. Output ALL questio
       const qs = parseQuiz(text);
       if (qs.length > 0) {
         currentQuizQuestions = qs;
-        renderQuizUI(qs);
-        if (currentSubject?.cache) {
-          const key = lastBtnId === "practiceTestBtn" ? "practiceTest" : "quiz";
-          currentSubject.cache[key] = text; save();
-        }
-        typingDiv.innerHTML = `✅ Updated to ${qs.length} questions.`;
+        openQuizInNewTab(qs);
+        setOutput(`<p style="opacity:0.6">✅ Quiz updated and opened in a new tab — ${qs.length} questions.</p>`);
+        if (currentSubject?.cache) { currentSubject.cache["quiz"] = text; save(); }
+        typingDiv.innerHTML = `✅ Updated to ${qs.length} questions — opened in new tab.`;
       } else {
         typingDiv.innerHTML = `⚠️ Couldn't parse response as quiz questions. Try rephrasing your request.`;
         console.warn("Unparseable AI response:", text);
@@ -1333,7 +1327,7 @@ function saveFCProgress() {
 function hasFCProgress() {
   const p = currentSubject?._fcProgress;
   if (!p || !Array.isArray(p.allCards) || p.allCards.length === 0) return false;
-  return p.knownIds.length < p.allCards.length; // only if not fully complete
+  return p.knownIds.length < p.allCards.length;
 }
 
 function resumeFCSession() {
@@ -1610,64 +1604,357 @@ function parseQuiz(text) {
 }
 
 // =========================
-// QUIZ UI
+// QUIZ — opens in new tab
 // =========================
 function renderQuiz(text) {
   const questions = parseQuiz(text);
   if (questions.length === 0) { setOutput(text); return; }
   currentQuizQuestions = questions;
-  renderQuizUI(questions);
+  openQuizInNewTab(questions);
+  setOutput(`<p style="opacity:0.6">✅ Quiz opened in a new tab — ${questions.length} questions ready!</p>`);
   showEditPanel("quiz");
 }
 
 function renderQuizUI(questions) {
-  let html = `<div class="quiz-container" id="quizContainer">`;
-  questions.forEach((q, qi) => {
-    html += `<div class="quiz-question" id="qq-${qi}">
-      <p class="q-text"><strong>Q${qi + 1}.</strong> ${q.q}</p>
-      <div class="q-options">`;
-    q.options.forEach((opt, oi) => {
-      html += `<button class="q-opt" onclick="answerQ(${qi},${oi},${q.correct})" id="opt-${qi}-${oi}">
-        <span class="opt-letter">${opt.letter}</span> ${opt.text}</button>`;
-    });
-    html += `</div><div class="q-feedback" id="fb-${qi}"></div></div>`;
-  });
-  html += `<div class="quiz-score" id="quizScore" style="display:none">
-    <h3>Results</h3><p id="scoreText"></p>
-    <div class="quiz-score-bar-wrap"><div class="quiz-score-bar" id="quizScoreBar"></div></div>
-    <button onclick="resetQuiz()" class="tool-btn" style="margin-top:14px">↺ Try Again</button>
-  </div></div>`;
-  setOutput(html, true);
-  window._quizData = { questions, answered: 0, correct: 0, total: questions.length };
+  currentQuizQuestions = questions;
+  openQuizInNewTab(questions);
+  setOutput(`<p style="opacity:0.6">✅ Quiz updated and opened in a new tab — ${questions.length} questions.</p>`);
 }
 
-window.answerQ = function (qi, oi, correct) {
-  const qd = window._quizData; if (!qd) return;
-  document.querySelectorAll(`#qq-${qi} .q-opt`).forEach(b => b.disabled = true);
-  const chosen = document.getElementById(`opt-${qi}-${oi}`);
-  const fb     = document.getElementById(`fb-${qi}`);
-  if (oi === correct) {
-    chosen.classList.add("correct"); fb.textContent = "✅ Correct!"; fb.style.color = "#4ade80"; qd.correct++;
-  } else {
-    chosen.classList.add("wrong");
-    fb.textContent = correct >= 0 ? `❌ Wrong — correct answer was ${qd.questions[qi].options[correct]?.letter}` : "❌ Wrong";
-    fb.style.color = "#f87171";
-    if (correct >= 0) { const cb = document.getElementById(`opt-${qi}-${correct}`); if (cb) cb.classList.add("correct"); }
-  }
-  qd.answered++;
-  if (qd.answered === qd.total) {
-    const pct     = Math.round((qd.correct / qd.total) * 100);
-    const scoreEl = document.getElementById("quizScore");
-    document.getElementById("scoreText").textContent = `You got ${qd.correct} / ${qd.total} correct (${pct}%) ${pct >= 70 ? "🎉 Great job!" : "📖 Keep studying!"}`;
-    const bar = document.getElementById("quizScoreBar");
-    if (bar) { bar.style.width = pct + "%"; bar.style.background = pct >= 70 ? "#4ade80" : "#f87171"; }
-    scoreEl.style.display = "block";
-    scoreEl.scrollIntoView({ behavior: "smooth", block: "nearest" });
-    awardXP(qd.correct * 5);
-  }
-};
+// =========================
+// OPEN QUIZ IN NEW TAB
+// =========================
+function openQuizInNewTab(questions) {
+  const subjectName = currentSubject?.name || "Quiz";
+  const date = new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
+  const questionsJSON = JSON.stringify(questions.map(q => ({ q: q.q, options: q.options, correct: q.correct })));
 
-window.resetQuiz = () => renderQuizUI(currentQuizQuestions);
+  const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${subjectName} — Quiz</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Sora:wght@400;600;700&family=Inter:wght@400;500&display=swap');
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Inter', sans-serif;
+      background: #0a0a0a;
+      color: #f0f0f0;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 40px 20px 80px;
+    }
+    header { text-align: center; margin-bottom: 40px; }
+    header h1 { font-family: 'Sora', sans-serif; font-size: 1.8rem; font-weight: 700; margin-bottom: 6px; }
+    header p { color: #555; font-size: 0.85rem; }
+    .quiz-wrap { width: 100%; max-width: 700px; display: flex; flex-direction: column; gap: 24px; }
+    .question-card {
+      background: #111;
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 16px;
+      padding: 24px 28px;
+      transition: border-color 0.3s, background 0.3s;
+    }
+    .question-card.correct-card { border-color: rgba(74,222,128,0.3); background: rgba(74,222,128,0.04); }
+    .question-card.wrong-card   { border-color: rgba(248,113,113,0.3); background: rgba(248,113,113,0.04); }
+    .q-num { color: #444; font-size: 0.75rem; letter-spacing: 0.08em; margin-bottom: 10px; }
+    .q-text { font-size: 1.05rem; font-weight: 500; margin-bottom: 18px; line-height: 1.55; color: #f0f0f0; }
+    .options { display: flex; flex-direction: column; gap: 10px; }
+    .opt-btn {
+      display: flex; align-items: center; gap: 14px;
+      padding: 12px 18px;
+      background: rgba(255,255,255,0.04);
+      border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 10px;
+      color: #ccc;
+      font-size: 0.95rem;
+      font-family: inherit;
+      cursor: pointer;
+      text-align: left;
+      transition: background 0.15s, border-color 0.15s, color 0.15s;
+    }
+    .opt-btn:hover:not(:disabled) { background: rgba(255,255,255,0.09); color: #fff; border-color: rgba(255,255,255,0.2); }
+    .opt-btn:disabled { cursor: default; }
+    .opt-btn.is-selected {
+      background: rgba(255,255,255,0.08);
+      border-color: rgba(255,255,255,0.35);
+      color: #fff;
+    }
+    .opt-btn.selected-correct { background: rgba(74,222,128,0.12); border-color: rgba(74,222,128,0.5); color: #4ade80; }
+    .opt-btn.selected-wrong   { background: rgba(248,113,113,0.12); border-color: rgba(248,113,113,0.5); color: #f87171; }
+    .opt-btn.show-correct     { background: rgba(74,222,128,0.08); border-color: rgba(74,222,128,0.3); color: #4ade80; }
+    .opt-letter {
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 26px; height: 26px; min-width: 26px;
+      border-radius: 6px;
+      background: rgba(255,255,255,0.07);
+      font-size: 0.8rem; font-weight: 600; color: #888;
+    }
+    .opt-btn.is-selected     .opt-letter { background: rgba(255,255,255,0.15); color: #fff; }
+    .opt-btn.selected-correct .opt-letter { background: rgba(74,222,128,0.2); color: #4ade80; }
+    .opt-btn.selected-wrong   .opt-letter { background: rgba(248,113,113,0.2); color: #f87171; }
+    .opt-btn.show-correct     .opt-letter { background: rgba(74,222,128,0.15); color: #4ade80; }
+    .q-feedback { margin-top: 14px; font-size: 0.88rem; font-weight: 500; display: none; }
+    .q-feedback.visible { display: block; }
+    .q-feedback.correct-fb { color: #4ade80; }
+    .q-feedback.wrong-fb   { color: #f87171; }
+    .submit-wrap { display: flex; justify-content: center; margin-top: 12px; width: 100%; max-width: 700px; }
+    .submit-btn {
+      padding: 14px 48px; background: #fff; color: #000;
+      font-size: 1rem; font-weight: 700; font-family: inherit;
+      border: none; border-radius: 12px; cursor: pointer;
+      transition: opacity 0.2s;
+    }
+    .submit-btn:hover { opacity: 0.88; }
+    .submit-btn:disabled { opacity: 0.4; cursor: default; }
+    #resultsPanel { display: none; width: 100%; max-width: 700px; margin-top: 16px; }
+    #resultsPanel.visible { display: block; }
+    .results-card {
+      background: #111; border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 18px; padding: 36px 32px; text-align: center; margin-bottom: 28px;
+    }
+    .score-big { font-family: 'Sora', sans-serif; font-size: 4rem; font-weight: 700; margin-bottom: 6px; line-height: 1; }
+    .score-big.pass { color: #4ade80; }
+    .score-big.fail { color: #f87171; }
+    .score-label { color: #555; font-size: 0.9rem; margin-bottom: 20px; }
+    .score-bar-wrap { height: 8px; background: rgba(255,255,255,0.07); border-radius: 6px; overflow: hidden; margin: 0 auto 20px; max-width: 320px; }
+    .score-bar { height: 100%; border-radius: 6px; transition: width 0.8s cubic-bezier(0.4,0,0.2,1); }
+    .score-bar.high { background: #4ade80; }
+    .score-bar.mid  { background: #facc15; }
+    .score-bar.low  { background: #f87171; }
+    .chips-row { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; margin-bottom: 20px; }
+    .chip { padding: 5px 16px; border-radius: 20px; font-size: 0.82rem; font-weight: 600; }
+    .chip.correct-chip { background: rgba(74,222,128,0.1);  color: #4ade80; border: 1px solid rgba(74,222,128,0.25); }
+    .chip.wrong-chip   { background: rgba(248,113,113,0.1); color: #f87171; border: 1px solid rgba(248,113,113,0.25); }
+    .chip.pct-chip     { background: rgba(255,255,255,0.07); color: #ccc; border: 1px solid rgba(255,255,255,0.15); }
+    .verdict-msg { font-size: 1.05rem; font-weight: 500; color: #f0f0f0; margin-bottom: 24px; }
+    .retry-btn {
+      padding: 11px 32px; border-radius: 10px;
+      border: 1px solid rgba(255,255,255,0.15); background: transparent;
+      color: #ccc; font-size: 0.9rem; font-family: inherit; cursor: pointer;
+      transition: background 0.2s, color 0.2s;
+    }
+    .retry-btn:hover { background: rgba(255,255,255,0.08); color: #fff; }
+    .wrong-review { display: flex; flex-direction: column; gap: 14px; }
+    .wrong-review-title { font-family: 'Sora', sans-serif; font-size: 1.1rem; font-weight: 600; color: #f87171; margin-bottom: 4px; }
+    .review-item { background: rgba(248,113,113,0.05); border: 1px solid rgba(248,113,113,0.2); border-radius: 12px; padding: 18px 20px; }
+    .review-q { font-size: 0.95rem; font-weight: 500; margin-bottom: 10px; color: #f0f0f0; }
+    .review-row { display: flex; align-items: flex-start; gap: 8px; font-size: 0.88rem; margin-bottom: 5px; }
+    .review-row:last-child { margin-bottom: 0; }
+    .review-label { font-weight: 600; min-width: 70px; }
+    .review-label.your  { color: #f87171; }
+    .review-label.right { color: #4ade80; }
+    .review-val { color: #aaa; }
+    footer { margin-top: 56px; color: #2a2a2a; font-size: 0.75rem; text-align: center; }
+    @media (max-width: 560px) {
+      .q-text { font-size: 0.97rem; }
+      .opt-btn { font-size: 0.88rem; padding: 11px 14px; }
+      .score-big { font-size: 3rem; }
+      .results-card { padding: 28px 20px; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>📝 ${subjectName}</h1>
+    <p>Multiple choice quiz · ${questions.length} questions · ${date}</p>
+  </header>
+
+  <div class="quiz-wrap" id="quizWrap"></div>
+
+  <div class="submit-wrap">
+    <button class="submit-btn" id="submitBtn" onclick="submitQuiz()">Submit Quiz</button>
+  </div>
+
+  <div id="resultsPanel">
+    <div class="results-card" id="summaryCard"></div>
+    <div class="wrong-review" id="wrongReview"></div>
+  </div>
+
+  <footer>Generated by StudyFlow AI</footer>
+
+  <script>
+    const QUESTIONS = ${questionsJSON};
+    const userAnswers = new Array(QUESTIONS.length).fill(null);
+    let submitted = false;
+
+    function build() {
+      const wrap = document.getElementById('quizWrap');
+      wrap.innerHTML = '';
+      QUESTIONS.forEach((q, qi) => {
+        const card = document.createElement('div');
+        card.className = 'question-card';
+        card.id = 'qcard-' + qi;
+        card.innerHTML =
+          '<p class="q-num">QUESTION ' + (qi + 1) + ' OF ' + QUESTIONS.length + '</p>' +
+          '<p class="q-text">' + q.q + '</p>' +
+          '<div class="options" id="opts-' + qi + '">' +
+          q.options.map((opt, oi) =>
+            '<button class="opt-btn" id="opt-' + qi + '-' + oi + '" onclick="pick(' + qi + ',' + oi + ')">' +
+            '<span class="opt-letter">' + opt.letter + '</span>' + opt.text + '</button>'
+          ).join('') +
+          '</div>' +
+          '<div class="q-feedback" id="fb-' + qi + '"></div>';
+        wrap.appendChild(card);
+      });
+    }
+
+    function pick(qi, oi) {
+      if (submitted) return;
+      userAnswers[qi] = oi;
+      document.querySelectorAll('#opts-' + qi + ' .opt-btn').forEach((btn, i) => {
+        btn.classList.toggle('is-selected', i === oi);
+      });
+      updateSubmitBtn();
+    }
+
+    function updateSubmitBtn() {
+      const answered = userAnswers.filter(a => a !== null).length;
+      document.getElementById('submitBtn').textContent =
+        answered === QUESTIONS.length
+          ? 'Submit Quiz'
+          : 'Submit Quiz (' + answered + ' / ' + QUESTIONS.length + ' answered)';
+    }
+
+    function submitQuiz() {
+      if (submitted) return;
+      const answered = userAnswers.filter(a => a !== null).length;
+      if (answered < QUESTIONS.length) {
+        const missing = QUESTIONS.length - answered;
+        if (!confirm('You have ' + missing + ' unanswered question' + (missing !== 1 ? 's' : '') + '. Submit anyway?')) return;
+      }
+      submitted = true;
+      document.getElementById('submitBtn').disabled = true;
+      document.getElementById('submitBtn').textContent = 'Submitted!';
+
+      let correctCount = 0;
+      const wrongItems = [];
+
+      QUESTIONS.forEach((q, qi) => {
+        const chosen = userAnswers[qi];
+        const isCorrect = chosen !== null && chosen === q.correct;
+        if (isCorrect) correctCount++;
+
+        const card = document.getElementById('qcard-' + qi);
+        const fb   = document.getElementById('fb-' + qi);
+        document.querySelectorAll('#opts-' + qi + ' .opt-btn').forEach(b => b.disabled = true);
+
+        if (chosen === null) {
+          card.classList.add('wrong-card');
+          fb.textContent = '— Not answered';
+          fb.className = 'q-feedback visible wrong-fb';
+          if (q.correct >= 0) {
+            const cb = document.getElementById('opt-' + qi + '-' + q.correct);
+            if (cb) cb.classList.add('show-correct');
+          }
+          wrongItems.push({ qi, q, chosen: null });
+        } else if (isCorrect) {
+          card.classList.add('correct-card');
+          const cb = document.getElementById('opt-' + qi + '-' + chosen);
+          if (cb) { cb.classList.remove('is-selected'); cb.classList.add('selected-correct'); }
+          fb.textContent = '✅ Correct!';
+          fb.className = 'q-feedback visible correct-fb';
+        } else {
+          card.classList.add('wrong-card');
+          const wb = document.getElementById('opt-' + qi + '-' + chosen);
+          if (wb) { wb.classList.remove('is-selected'); wb.classList.add('selected-wrong'); }
+          if (q.correct >= 0) {
+            const cb = document.getElementById('opt-' + qi + '-' + q.correct);
+            if (cb) cb.classList.add('show-correct');
+          }
+          const correctLetter = q.correct >= 0 ? ' — correct answer: ' + q.options[q.correct].letter : '';
+          fb.textContent = '❌ Wrong' + correctLetter;
+          fb.className = 'q-feedback visible wrong-fb';
+          wrongItems.push({ qi, q, chosen });
+        }
+
+        fb.style.display = 'block';
+      });
+
+      showResults(correctCount, wrongItems);
+    }
+
+    function showResults(correctCount, wrongItems) {
+      const total  = QUESTIONS.length;
+      const pct    = Math.round((correctCount / total) * 100);
+      const passed = pct >= 70;
+      const barClass = pct >= 80 ? 'high' : pct >= 60 ? 'mid' : 'low';
+
+      const verdictText =
+        pct === 100 ? '🎉 Perfect score! Outstanding work!' :
+        pct >= 80   ? '🌟 Great job! You really know this material.' :
+        pct >= 70   ? '👍 Good work — just a few to review.' :
+        pct >= 50   ? '📖 Decent effort, but some gaps to fill.' :
+                      '💪 Keep studying — you\'ll get there!';
+
+      document.getElementById('summaryCard').innerHTML =
+        '<div class="score-big ' + (passed ? 'pass' : 'fail') + '">' + pct + '%</div>' +
+        '<p class="score-label">' + correctCount + ' of ' + total + ' correct</p>' +
+        '<div class="score-bar-wrap"><div class="score-bar ' + barClass + '" id="scoreBarFill" style="width:0%"></div></div>' +
+        '<div class="chips-row">' +
+          '<span class="chip correct-chip">✅ Correct: ' + correctCount + '</span>' +
+          '<span class="chip wrong-chip">❌ Wrong: ' + (total - correctCount) + '</span>' +
+          '<span class="chip pct-chip">Score: ' + pct + '%</span>' +
+        '</div>' +
+        '<p class="verdict-msg">' + verdictText + '</p>' +
+        '<button class="retry-btn" onclick="retryQuiz()">↺ Try Again</button>';
+
+      const panel = document.getElementById('resultsPanel');
+      panel.classList.add('visible');
+      setTimeout(() => {
+        const bar = document.getElementById('scoreBarFill');
+        if (bar) bar.style.width = pct + '%';
+      }, 100);
+      panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+      const reviewWrap = document.getElementById('wrongReview');
+      if (wrongItems.length > 0) {
+        reviewWrap.innerHTML = '<p class="wrong-review-title">❌ Questions you got wrong</p>' +
+          wrongItems.map(function(item) {
+            const yourAns = item.chosen !== null
+              ? item.q.options[item.chosen].letter + '. ' + item.q.options[item.chosen].text
+              : 'Not answered';
+            const correctAns = item.q.correct >= 0
+              ? item.q.options[item.q.correct].letter + '. ' + item.q.options[item.q.correct].text
+              : 'N/A';
+            return '<div class="review-item">' +
+              '<p class="review-q">Q' + (item.qi + 1) + '. ' + item.q.q + '</p>' +
+              '<div class="review-row"><span class="review-label your">Your answer:</span><span class="review-val">' + yourAns + '</span></div>' +
+              '<div class="review-row"><span class="review-label right">Correct:</span><span class="review-val">' + correctAns + '</span></div>' +
+              '</div>';
+          }).join('');
+      } else {
+        reviewWrap.innerHTML = '<p style="text-align:center;color:#4ade80;font-size:1rem;margin-top:8px;">🎉 You got every question right!</p>';
+      }
+    }
+
+    function retryQuiz() {
+      submitted = false;
+      userAnswers.fill(null);
+      document.getElementById('submitBtn').disabled = false;
+      document.getElementById('submitBtn').textContent = 'Submit Quiz';
+      document.getElementById('resultsPanel').classList.remove('visible');
+      document.getElementById('summaryCard').innerHTML = '';
+      document.getElementById('wrongReview').innerHTML = '';
+      build();
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    build();
+    updateSubmitBtn();
+  <\/script>
+</body>
+</html>`;
+
+  const blob = new Blob([html], { type: "text/html" });
+  const url  = URL.createObjectURL(blob);
+  window.open(url, "_blank");
+  setTimeout(() => URL.revokeObjectURL(url), 60000);
+}
 
 // =========================
 // TOOL BUTTONS
@@ -1708,18 +1995,6 @@ document.getElementById("eli5Btn").onclick = () => runTool(
 );
 document.getElementById("mnemonicBtn").onclick = () => runTool(
   "Create memory tricks, mnemonics, and acronyms to help remember the key concepts. Use bold for the mnemonics.", "mnemonicBtn"
-);
-document.getElementById("practiceTestBtn").onclick = () => runToolFull(
-  `Read ALL of the study material and generate a comprehensive practice test covering every topic — minimum 15 questions.
-
-EXACT FORMAT:
-1. [Question text]
-A. [option]
-B. [option]
-C. [option] (correct)
-D. [option]
-
-Mark the correct answer with (correct) after it.`, "practiceTestBtn", renderQuiz
 );
 document.getElementById("weaknessBtn").onclick = () => runTool(
   "Identify the 3-5 most complex or tricky concepts in this material. Use bold headers for each concept, explain why it is difficult, and give tips for mastering it.", "weaknessBtn"
