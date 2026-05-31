@@ -58,137 +58,38 @@ function downloadFlashcardsHTML() {
   <style>
     @import url('https://fonts.googleapis.com/css2?family=Sora:wght@400;600;700&family=Inter:wght@400;500&display=swap');
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-    body {
-      font-family: 'Inter', sans-serif;
-      background: #0a0a0a;
-      color: #f0f0f0;
-      min-height: 100vh;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      padding: 40px 20px;
-    }
+    body { font-family: 'Inter', sans-serif; background: #0a0a0a; color: #f0f0f0; min-height: 100vh; display: flex; flex-direction: column; align-items: center; padding: 40px 20px; }
     header { text-align: center; margin-bottom: 36px; }
     header h1 { font-family: 'Sora', sans-serif; font-size: 1.8rem; font-weight: 700; margin-bottom: 6px; }
     header p { color: #555; font-size: 0.85rem; }
-    .controls {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      margin-bottom: 28px;
-      flex-wrap: wrap;
-      justify-content: center;
-    }
-    .btn {
-      padding: 9px 20px;
-      border-radius: 10px;
-      border: 1px solid rgba(255,255,255,0.15);
-      background: rgba(255,255,255,0.07);
-      color: #ccc;
-      font-size: 0.88rem;
-      font-family: inherit;
-      cursor: pointer;
-      transition: background 0.2s, color 0.2s;
-    }
+    .controls { display: flex; align-items: center; gap: 12px; margin-bottom: 28px; flex-wrap: wrap; justify-content: center; }
+    .btn { padding: 9px 20px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.15); background: rgba(255,255,255,0.07); color: #ccc; font-size: 0.88rem; font-family: inherit; cursor: pointer; transition: background 0.2s, color 0.2s; }
     .btn:hover { background: rgba(255,255,255,0.13); color: #fff; }
     .btn.primary { background: #fff; color: #000; border-color: #fff; font-weight: 600; }
     .btn.primary:hover { background: #e0e0e0; }
     .counter { color: #555; font-size: 0.88rem; min-width: 80px; text-align: center; }
-    .progress-wrap {
-      width: 100%;
-      max-width: 520px;
-      height: 4px;
-      background: rgba(255,255,255,0.08);
-      border-radius: 4px;
-      margin-bottom: 28px;
-      overflow: hidden;
-    }
-    .progress-fill {
-      height: 100%;
-      background: #fff;
-      border-radius: 4px;
-      transition: width 0.3s ease;
-    }
+    .progress-wrap { width: 100%; max-width: 520px; height: 4px; background: rgba(255,255,255,0.08); border-radius: 4px; margin-bottom: 28px; overflow: hidden; }
+    .progress-fill { height: 100%; background: #fff; border-radius: 4px; transition: width 0.3s ease; }
     .card-stage { width: 100%; max-width: 520px; perspective: 1200px; margin-bottom: 24px; }
     .card { display: none; cursor: pointer; }
     .card.active { display: block; }
-    .card-inner {
-      width: 100%;
-      min-height: 280px;
-      position: relative;
-      transform-style: preserve-3d;
-      transition: transform 0.45s cubic-bezier(0.4, 0, 0.2, 1);
-      border-radius: 18px;
-    }
+    .card-inner { width: 100%; min-height: 280px; position: relative; transform-style: preserve-3d; transition: transform 0.45s cubic-bezier(0.4, 0, 0.2, 1); border-radius: 18px; }
     .card-inner.flipped { transform: rotateY(180deg); }
-    .card-front, .card-back {
-      position: absolute;
-      inset: 0;
-      backface-visibility: hidden;
-      -webkit-backface-visibility: hidden;
-      border-radius: 18px;
-      padding: 36px 32px;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      text-align: center;
-      gap: 16px;
-      min-height: 280px;
-    }
+    .card-front, .card-back { position: absolute; inset: 0; backface-visibility: hidden; -webkit-backface-visibility: hidden; border-radius: 18px; padding: 36px 32px; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; gap: 16px; min-height: 280px; }
     .card-front { background: #141414; border: 1px solid rgba(255,255,255,0.1); }
     .card-back { background: #181825; border: 1px solid rgba(120,120,255,0.2); transform: rotateY(180deg); }
     .card-num { color: #444; font-size: 0.75rem; letter-spacing: 0.08em; }
     .card-text { font-size: 1.15rem; line-height: 1.6; color: #f0f0f0; font-family: 'Sora', sans-serif; }
     .card-back .card-text { color: #c8c8ff; }
     .card-hint { color: #333; font-size: 0.75rem; margin-top: 8px; }
-    .verdict {
-      display: none;
-      justify-content: center;
-      gap: 14px;
-      margin-top: 20px;
-      flex-wrap: wrap;
-    }
+    .verdict { display: none; justify-content: center; gap: 14px; margin-top: 20px; flex-wrap: wrap; }
     .verdict.visible { display: flex; }
-    .verdict-btn {
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-      padding: 14px 32px;
-      border-radius: 14px;
-      font-size: 1rem;
-      font-weight: 700;
-      font-family: inherit;
-      cursor: pointer;
-      min-width: 160px;
-      justify-content: center;
-      transition: transform 0.15s, opacity 0.15s;
-    }
+    .verdict-btn { display: inline-flex; align-items: center; gap: 8px; padding: 14px 32px; border-radius: 14px; font-size: 1rem; font-weight: 700; font-family: inherit; cursor: pointer; min-width: 160px; justify-content: center; transition: transform 0.15s, opacity 0.15s; }
     .verdict-btn:hover { transform: translateY(-2px); opacity: 0.9; }
-    .verdict-btn.unknown {
-      border: 2px solid rgba(248,113,113,0.5);
-      background: rgba(248,113,113,0.12);
-      color: #f87171;
-    }
-    .verdict-btn.known {
-      border: 2px solid rgba(74,222,128,0.5);
-      background: rgba(74,222,128,0.12);
-      color: #4ade80;
-    }
-    .score-row {
-      display: flex;
-      gap: 12px;
-      margin-top: 4px;
-      margin-bottom: 16px;
-      justify-content: center;
-      flex-wrap: wrap;
-    }
-    .chip {
-      padding: 5px 14px;
-      border-radius: 20px;
-      font-size: 0.8rem;
-      font-weight: 600;
-    }
+    .verdict-btn.unknown { border: 2px solid rgba(248,113,113,0.5); background: rgba(248,113,113,0.12); color: #f87171; }
+    .verdict-btn.known { border: 2px solid rgba(74,222,128,0.5); background: rgba(74,222,128,0.12); color: #4ade80; }
+    .score-row { display: flex; gap: 12px; margin-top: 4px; margin-bottom: 16px; justify-content: center; flex-wrap: wrap; }
+    .chip { padding: 5px 14px; border-radius: 20px; font-size: 0.8rem; font-weight: 600; }
     .chip.known { background: rgba(74,222,128,0.1); color: #4ade80; border: 1px solid rgba(74,222,128,0.25); }
     .chip.unknown { background: rgba(248,113,113,0.1); color: #f87171; border: 1px solid rgba(248,113,113,0.25); }
     .all-cards { width: 100%; max-width: 520px; display: none; flex-direction: column; gap: 12px; margin-top: 12px; }
@@ -197,11 +98,6 @@ function downloadFlashcardsHTML() {
     .list-q { font-weight: 600; margin-bottom: 8px; font-size: 0.92rem; }
     .list-a { color: #888; font-size: 0.88rem; line-height: 1.5; }
     footer { margin-top: 48px; color: #2a2a2a; font-size: 0.75rem; text-align: center; }
-    @media (max-width: 560px) {
-      .card-text { font-size: 1rem; }
-      .card-front, .card-back { padding: 28px 22px; }
-      .verdict-btn { min-width: 130px; padding: 12px 20px; font-size: 0.92rem; }
-    }
   </style>
 </head>
 <body>
@@ -209,7 +105,6 @@ function downloadFlashcardsHTML() {
     <h1>📚 ${subjectName}</h1>
     <p>Flashcards · ${currentFlashcards.length} cards · ${date}</p>
   </header>
-
   <div class="controls">
     <button class="btn" onclick="prev()">← Prev</button>
     <span class="counter" id="counter">1 / ${currentFlashcards.length}</span>
@@ -217,37 +112,23 @@ function downloadFlashcardsHTML() {
     <button class="btn primary" onclick="flipCard()">Flip</button>
     <button class="btn" onclick="toggleList()" id="listToggleBtn">☰ All Cards</button>
   </div>
-
-  <div class="progress-wrap">
-    <div class="progress-fill" id="progressFill" style="width:${(1 / currentFlashcards.length * 100).toFixed(1)}%"></div>
-  </div>
-
+  <div class="progress-wrap"><div class="progress-fill" id="progressFill" style="width:${(1 / currentFlashcards.length * 100).toFixed(1)}%"></div></div>
   <div class="score-row">
     <span class="chip known" id="knownChip">✅ Known: 0</span>
     <span class="chip unknown" id="unknownChip">❌ To learn: ${currentFlashcards.length}</span>
   </div>
-
-  <div class="card-stage">
-    ${cardsHTML}
-  </div>
-
+  <div class="card-stage">${cardsHTML}</div>
   <div class="verdict" id="verdict">
     <button class="verdict-btn unknown" onclick="markUnknown()">😕 Still Learning</button>
     <button class="verdict-btn known" onclick="markKnown()">💪 Know It!</button>
   </div>
-
-  <div class="all-cards" id="allCards">
-    ${listHTML}
-  </div>
-
+  <div class="all-cards" id="allCards">${listHTML}</div>
   <footer>Generated by StudyFlow AI</footer>
-
   <script>
     let current = 0;
     const total = ${currentFlashcards.length};
     const cards = document.querySelectorAll('.card');
     let known = 0;
-
     function show(idx) {
       cards.forEach(c => c.classList.remove('active'));
       const prevInner = document.getElementById('inner-' + current);
@@ -258,46 +139,25 @@ function downloadFlashcardsHTML() {
       document.getElementById('counter').textContent = (current + 1) + ' / ' + total;
       document.getElementById('progressFill').style.width = ((current + 1) / total * 100).toFixed(1) + '%';
     }
-
     function flipCard() {
       const inner = document.getElementById('inner-' + current);
       if (!inner) return;
       const flipped = inner.classList.toggle('flipped');
       document.getElementById('verdict').classList.toggle('visible', flipped);
     }
-
-    function markKnown() {
-      known = Math.min(known + 1, total);
-      document.getElementById('knownChip').textContent = '✅ Known: ' + known;
-      document.getElementById('unknownChip').textContent = '❌ To learn: ' + (total - known);
-      next();
-    }
-
-    function markUnknown() {
-      next();
-    }
-
+    function markKnown() { known = Math.min(known + 1, total); document.getElementById('knownChip').textContent = '✅ Known: ' + known; document.getElementById('unknownChip').textContent = '❌ To learn: ' + (total - known); next(); }
+    function markUnknown() { next(); }
     function next() { show(current + 1); }
     function prev() { show(current - 1); }
-
-    function toggleList() {
-      const list = document.getElementById('allCards');
-      const btn  = document.getElementById('listToggleBtn');
-      const visible = list.classList.toggle('visible');
-      btn.textContent = visible ? '✕ Hide List' : '☰ All Cards';
-    }
-
+    function toggleList() { const list = document.getElementById('allCards'); const btn = document.getElementById('listToggleBtn'); const visible = list.classList.toggle('visible'); btn.textContent = visible ? '✕ Hide List' : '☰ All Cards'; }
     cards.forEach(c => c.addEventListener('click', flipCard));
     document.addEventListener('keydown', e => {
       if (e.key === 'ArrowRight') next();
       else if (e.key === 'ArrowLeft') prev();
       else if (e.key === ' ') { e.preventDefault(); flipCard(); }
-      else if (e.key === 'k' || e.key === 'K') { const inner = document.getElementById('inner-' + current); if (inner?.classList.contains('flipped')) markKnown(); }
-      else if (e.key === 'u' || e.key === 'U') { const inner = document.getElementById('inner-' + current); if (inner?.classList.contains('flipped')) markUnknown(); }
     });
-
     show(0);
-  </script>
+  <\/script>
 </body>
 </html>`;
 
@@ -320,17 +180,8 @@ async function cloudSave() {
   try {
     const res = await fetch(`${SUPABASE_URL}/rest/v1/user_data`, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "apikey": SUPABASE_ANON,
-        "Authorization": `Bearer ${SUPABASE_ANON}`,
-        "Prefer": "resolution=merge-duplicates"
-      },
-      body: JSON.stringify({
-        username: currentUser.username,
-        subjects: subjects,
-        saved_at: now
-      })
+      headers: { "Content-Type": "application/json", "apikey": SUPABASE_ANON, "Authorization": `Bearer ${SUPABASE_ANON}`, "Prefer": "resolution=merge-duplicates" },
+      body: JSON.stringify({ username: currentUser.username, subjects: subjects, saved_at: now })
     });
     if (!res.ok) { const e = await res.json().catch(() => ({})); console.warn("Cloud save failed:", e); return; }
     localStorage.setItem(SYNC_KEY, now.toString());
@@ -350,15 +201,8 @@ async function cloudLoad(username) {
   } catch (e) { console.warn("Cloud load error:", e); return null; }
 }
 
-function scheduleSyncSave() {
-  clearTimeout(syncTimeout);
-  syncTimeout = setTimeout(cloudSave, 1500);
-}
-
-function save() {
-  localStorage.setItem("subjects", JSON.stringify(subjects));
-  scheduleSyncSave();
-}
+function scheduleSyncSave() { clearTimeout(syncTimeout); syncTimeout = setTimeout(cloudSave, 1500); }
+function save() { localStorage.setItem("subjects", JSON.stringify(subjects)); scheduleSyncSave(); }
 
 // =========================
 // TOAST
@@ -369,23 +213,10 @@ function showToast(msg, color) {
   const toast = document.createElement("div");
   toast.id = "syncToast";
   toast.textContent = msg;
-  toast.style.cssText = `
-    position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(10px);
-    background:#111;border:1px solid ${color || "rgba(255,255,255,0.15)"};
-    color:${color ? "#fff" : "#ccc"};padding:10px 22px;border-radius:12px;
-    font-size:0.88rem;font-family:inherit;box-shadow:0 8px 32px rgba(0,0,0,0.5);
-    z-index:99999;opacity:0;transition:opacity 0.3s,transform 0.3s;pointer-events:none;
-  `;
+  toast.style.cssText = `position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(10px);background:#111;border:1px solid ${color || "rgba(255,255,255,0.15)"};color:${color ? "#fff" : "#ccc"};padding:10px 22px;border-radius:12px;font-size:0.88rem;font-family:inherit;box-shadow:0 8px 32px rgba(0,0,0,0.5);z-index:99999;opacity:0;transition:opacity 0.3s,transform 0.3s;pointer-events:none;`;
   document.body.appendChild(toast);
-  requestAnimationFrame(() => {
-    toast.style.opacity = "1";
-    toast.style.transform = "translateX(-50%) translateY(0)";
-  });
-  setTimeout(() => {
-    toast.style.opacity = "0";
-    toast.style.transform = "translateX(-50%) translateY(10px)";
-    setTimeout(() => toast.remove(), 300);
-  }, 3000);
+  requestAnimationFrame(() => { toast.style.opacity = "1"; toast.style.transform = "translateX(-50%) translateY(0)"; });
+  setTimeout(() => { toast.style.opacity = "0"; toast.style.transform = "translateX(-50%) translateY(10px)"; setTimeout(() => toast.remove(), 300); }, 3000);
 }
 
 // =========================
@@ -399,51 +230,30 @@ function showLoginScreen() {
 
   const overlay = document.createElement("div");
   overlay.id = "loginOverlay";
-  overlay.style.cssText = `
-    position:fixed;inset:0;z-index:99998;
-    display:flex;align-items:center;justify-content:center;
-    background:#000;font-family:'Inter',sans-serif;
-  `;
+  overlay.style.cssText = `position:fixed;inset:0;z-index:99998;display:flex;align-items:center;justify-content:center;background:#000;font-family:'Inter',sans-serif;`;
   overlay.innerHTML = `
-    <div style="width:100%;max-width:440px;padding:48px 40px;background:#0d0d0d;border-radius:20px;
-      border:1px solid rgba(255,255,255,0.09);box-shadow:0 32px 80px rgba(0,0,0,0.7);">
+    <div style="width:100%;max-width:440px;padding:48px 40px;background:#0d0d0d;border-radius:20px;border:1px solid rgba(255,255,255,0.09);box-shadow:0 32px 80px rgba(0,0,0,0.7);">
       <div style="text-align:center;margin-bottom:36px;">
         <div style="font-size:2.5rem;margin-bottom:14px;">📚</div>
         <h1 style="color:#f0f0f0;font-size:1.6rem;font-weight:700;margin:0 0 8px;font-family:'Sora',sans-serif;">StudyFlow AI</h1>
         <p style="color:#555;font-size:0.88rem;margin:0;">Sign in to sync your subjects across devices</p>
       </div>
-      <div id="loginError" style="display:none;background:rgba(248,113,113,0.1);border:1px solid rgba(248,113,113,0.3);
-        color:#f87171;padding:10px 14px;border-radius:10px;font-size:0.85rem;margin-bottom:18px;"></div>
+      <div id="loginError" style="display:none;background:rgba(248,113,113,0.1);border:1px solid rgba(248,113,113,0.3);color:#f87171;padding:10px 14px;border-radius:10px;font-size:0.85rem;margin-bottom:18px;"></div>
       <div style="margin-bottom:16px;">
         <label style="display:block;color:#666;font-size:0.75rem;margin-bottom:7px;font-weight:600;letter-spacing:0.06em;text-transform:uppercase;">Username</label>
-        <input id="loginUsername" type="text" placeholder="e.g. alexsmith" autocomplete="username"
-          style="width:100%;box-sizing:border-box;padding:12px 16px;background:#161616;
-          border:1px solid rgba(255,255,255,0.09);border-radius:10px;color:#f0f0f0;
-          font-size:0.95rem;outline:none;font-family:inherit;transition:border-color 0.2s;">
+        <input id="loginUsername" type="text" placeholder="e.g. alexsmith" autocomplete="username" style="width:100%;box-sizing:border-box;padding:12px 16px;background:#161616;border:1px solid rgba(255,255,255,0.09);border-radius:10px;color:#f0f0f0;font-size:0.95rem;outline:none;font-family:inherit;transition:border-color 0.2s;">
       </div>
       <div style="margin-bottom:28px;">
         <label style="display:block;color:#666;font-size:0.75rem;margin-bottom:7px;font-weight:600;letter-spacing:0.06em;text-transform:uppercase;">Claude API Key</label>
         <div style="position:relative;">
-          <input id="loginApiKey" type="password" placeholder="sk-ant-..." autocomplete="off"
-            style="width:100%;box-sizing:border-box;padding:12px 44px 12px 16px;background:#161616;
-            border:1px solid rgba(255,255,255,0.09);border-radius:10px;color:#f0f0f0;
-            font-size:0.95rem;outline:none;font-family:inherit;transition:border-color 0.2s;">
-          <button id="eyeToggle" style="position:absolute;right:12px;top:50%;transform:translateY(-50%);
-            background:none;border:none;color:#555;cursor:pointer;font-size:15px;padding:4px;">👁</button>
+          <input id="loginApiKey" type="password" placeholder="sk-ant-..." autocomplete="off" style="width:100%;box-sizing:border-box;padding:12px 44px 12px 16px;background:#161616;border:1px solid rgba(255,255,255,0.09);border-radius:10px;color:#f0f0f0;font-size:0.95rem;outline:none;font-family:inherit;transition:border-color 0.2s;">
+          <button id="eyeToggle" style="position:absolute;right:12px;top:50%;transform:translateY(-50%);background:none;border:none;color:#555;cursor:pointer;font-size:15px;padding:4px;">👁</button>
         </div>
-        <p style="color:#444;font-size:0.76rem;margin:8px 0 0;line-height:1.5;">
-          Your key is saved <strong style="color:#666">only on this device</strong>.
-          Your subjects sync by username across devices.
-        </p>
+        <p style="color:#444;font-size:0.76rem;margin:8px 0 0;line-height:1.5;">Your key is saved <strong style="color:#666">only on this device</strong>. Your subjects sync by username across devices.</p>
       </div>
-      <button id="loginSubmitBtn" style="width:100%;padding:13px;background:#fff;border:none;border-radius:10px;
-        color:#000;font-size:0.95rem;font-weight:700;cursor:pointer;font-family:inherit;
-        letter-spacing:0.02em;transition:opacity 0.2s,transform 0.1s;">Sign In / Create Account</button>
-      <p style="text-align:center;color:#333;font-size:0.76rem;margin:20px 0 0;line-height:1.6;">
-        New username = new account &nbsp;·&nbsp; Same username on any device = your data loads
-      </p>
-    </div>
-  `;
+      <button id="loginSubmitBtn" style="width:100%;padding:13px;background:#fff;border:none;border-radius:10px;color:#000;font-size:0.95rem;font-weight:700;cursor:pointer;font-family:inherit;letter-spacing:0.02em;transition:opacity 0.2s,transform 0.1s;">Sign In / Create Account</button>
+      <p style="text-align:center;color:#333;font-size:0.76rem;margin:20px 0 0;line-height:1.6;">New username = new account &nbsp;·&nbsp; Same username on any device = your data loads</p>
+    </div>`;
   document.body.appendChild(overlay);
 
   const unEl   = overlay.querySelector("#loginUsername");
@@ -476,19 +286,12 @@ async function doLogin() {
   if (!username || username.length < 2) { showLoginError("Please enter a username (at least 2 characters)."); return; }
   if (!apiKey || !apiKey.startsWith("sk-")) { showLoginError("Please enter a valid Claude API key (starts with sk-)."); return; }
 
-  btn.textContent = "Validating key...";
-  btn.style.opacity = "0.7";
-  btn.disabled = true;
+  btn.textContent = "Validating key..."; btn.style.opacity = "0.7"; btn.disabled = true;
 
   try {
     const testRes = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": apiKey,
-        "anthropic-version": "2023-06-01",
-        "anthropic-dangerous-direct-browser-access": "true"
-      },
+      headers: { "Content-Type": "application/json", "x-api-key": apiKey, "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true" },
       body: JSON.stringify({ model: CLAUDE_MODEL, max_tokens: 5, messages: [{ role: "user", content: "hi" }] })
     });
     if (!testRes.ok) {
@@ -514,14 +317,12 @@ async function doLogin() {
     subjects = cloudData.subjects;
     localStorage.setItem("subjects", JSON.stringify(subjects));
     document.getElementById("loginOverlay").remove();
-    revealApp();
-    renderSubjects();
+    revealApp(); renderSubjects();
     showToast(`✅ Loaded ${subjects.length} subject${subjects.length !== 1 ? "s" : ""} from your account`);
   } else {
     subjects = JSON.parse(localStorage.getItem("subjects")) || [];
     document.getElementById("loginOverlay").remove();
-    revealApp();
-    renderSubjects();
+    revealApp(); renderSubjects();
     if (subjects.length === 0) showToast("👋 Welcome! Create your first subject to get started.");
   }
 
@@ -546,17 +347,12 @@ function addUserBadge(username) {
   wrap.id = "userBadgeWrap";
   wrap.style.cssText = "position:relative;margin-bottom:8px;";
   wrap.innerHTML = `
-    <button id="userBadgeBtn" style="width:100%;display:flex;align-items:center;gap:10px;
-      padding:9px 14px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);
-      border-radius:10px;color:#ccc;font-size:0.84rem;font-family:inherit;cursor:pointer;
-      transition:background 0.2s;text-align:left;">
+    <button id="userBadgeBtn" style="width:100%;display:flex;align-items:center;gap:10px;padding:9px 14px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:10px;color:#ccc;font-size:0.84rem;font-family:inherit;cursor:pointer;transition:background 0.2s;text-align:left;">
       <span style="font-size:1rem;">👤</span>
       <span style="flex:1;font-weight:500;">@${username}</span>
       <span style="color:#444;font-size:0.7rem;">▾</span>
     </button>
-    <div id="userDropdown" style="display:none;position:absolute;bottom:calc(100% + 6px);left:0;right:0;
-      background:#111;border:1px solid rgba(255,255,255,0.1);border-radius:12px;padding:6px;
-      z-index:9999;box-shadow:0 -8px 32px rgba(0,0,0,0.6);">
+    <div id="userDropdown" style="display:none;position:absolute;bottom:calc(100% + 6px);left:0;right:0;background:#111;border:1px solid rgba(255,255,255,0.1);border-radius:12px;padding:6px;z-index:9999;box-shadow:0 -8px 32px rgba(0,0,0,0.6);">
       <div style="padding:8px 12px 10px;border-bottom:1px solid rgba(255,255,255,0.07);margin-bottom:4px;">
         <div style="color:#f0f0f0;font-weight:600;font-size:0.88rem;">@${username}</div>
         <div style="color:#444;font-size:0.75rem;margin-top:2px;">☁️ Synced across devices</div>
@@ -564,15 +360,12 @@ function addUserBadge(username) {
       <button class="udd-btn" id="uddUpdateKey">🔑  Update API Key</button>
       <button class="udd-btn" id="uddSync">☁️  Force Sync Now</button>
       <button class="udd-btn" id="uddLogout" style="color:#f87171;">↩  Sign Out</button>
-    </div>
-  `;
+    </div>`;
 
   if (!document.getElementById("uddStyles")) {
     const s = document.createElement("style");
     s.id = "uddStyles";
-    s.textContent = `.udd-btn{display:block;width:100%;text-align:left;padding:8px 12px;background:none;border:none;
-      color:#aaa;font-size:0.84rem;font-family:inherit;cursor:pointer;border-radius:8px;transition:background 0.15s;}
-      .udd-btn:hover{background:rgba(255,255,255,0.06);}`;
+    s.textContent = `.udd-btn{display:block;width:100%;text-align:left;padding:8px 12px;background:none;border:none;color:#aaa;font-size:0.84rem;font-family:inherit;cursor:pointer;border-radius:8px;transition:background 0.15s;}.udd-btn:hover{background:rgba(255,255,255,0.06);}`;
     document.head.appendChild(s);
   }
 
@@ -589,26 +382,18 @@ function addUserBadge(username) {
     const newKey = prompt("Enter your new Claude API key:");
     if (!newKey || !newKey.trim()) return;
     if (!newKey.trim().startsWith("sk-")) { alert("That doesn't look like a valid key (should start with sk-)."); return; }
-    currentUser.apiKey = newKey.trim();
-    CLAUDE_API_KEY     = newKey.trim();
+    currentUser.apiKey = newKey.trim(); CLAUDE_API_KEY = newKey.trim();
     localStorage.setItem(AUTH_KEY, JSON.stringify(currentUser));
     showToast("✅ API key updated on this device");
   };
 
-  wrap.querySelector("#uddSync").onclick = async () => {
-    dropdown.style.display = "none";
-    await cloudSave();
-    showToast("☁️ Synced to cloud");
-  };
+  wrap.querySelector("#uddSync").onclick = async () => { dropdown.style.display = "none"; await cloudSave(); showToast("☁️ Synced to cloud"); };
 
   wrap.querySelector("#uddLogout").onclick = () => {
     dropdown.style.display = "none";
     if (!confirm("Sign out? Your data is saved to the cloud.")) return;
     localStorage.removeItem(AUTH_KEY);
-    currentUser    = null;
-    CLAUDE_API_KEY = "";
-    subjects       = [];
-    currentSubject = null;
+    currentUser = null; CLAUDE_API_KEY = ""; subjects = []; currentSubject = null;
     const app = document.querySelector(".app");
     if (app) app.style.display = "none";
     showLoginScreen();
@@ -643,9 +428,7 @@ function addUserBadge(username) {
           }
         }
 
-        revealApp();
-        renderSubjects();
-        addUserBadge(auth.username);
+        revealApp(); renderSubjects(); addUserBadge(auth.username);
         return;
       }
     } catch (e) { /* fall through */ }
@@ -681,23 +464,23 @@ let fcSession = {
 // CACHE KEY MAP
 // =========================
 const CACHE_KEYS = {
-  summarizeBtn:    "summary",
-  flashcardBtn:    "flashcards",
-  quizBtn:         "quiz",
-  studyPlanBtn:    "studyPlan",
-  eli5Btn:         "eli5",
-  mnemonicBtn:     "mnemonics",
-  weaknessBtn:     "weakness"
+  summarizeBtn: "summary",
+  flashcardBtn: "flashcards",
+  quizBtn:      "quiz",
+  studyPlanBtn: "studyPlan",
+  eli5Btn:      "eli5",
+  mnemonicBtn:  "mnemonics",
+  weaknessBtn:  "weakness"
 };
 
 const TOOL_NAMES = {
-  summarizeBtn:    "Summary",
-  flashcardBtn:    "Flashcards",
-  quizBtn:         "Quiz",
-  studyPlanBtn:    "Study Plan",
-  eli5Btn:         "ELI5",
-  mnemonicBtn:     "Memory Tricks",
-  weaknessBtn:     "Weak Spots"
+  summarizeBtn: "Summary",
+  flashcardBtn: "Flashcards",
+  quizBtn:      "Quiz",
+  studyPlanBtn: "Study Plan",
+  eli5Btn:      "ELI5",
+  mnemonicBtn:  "Memory Tricks",
+  weaknessBtn:  "Weak Spots"
 };
 
 // =========================
@@ -707,8 +490,7 @@ document.getElementById("newSubjectBtn").onclick = () => {
   const name = prompt("Subject name?");
   if (!name || !name.trim()) return;
   subjects.push({ id: Date.now(), name: name.trim(), files: [], chunks: [], chatHistory: [], xp: 0, level: 1, streak: 0, cache: {} });
-  save();
-  renderSubjects();
+  save(); renderSubjects();
 };
 
 // =========================
@@ -735,17 +517,13 @@ function renderSubjects(filter = "") {
     const actions = document.createElement("div");
     actions.className = "subject-actions";
     const renameBtn = document.createElement("button");
-    renameBtn.className = "subject-action-btn rename-btn";
-    renameBtn.title = "Rename"; renameBtn.innerHTML = "✏️";
+    renameBtn.className = "subject-action-btn rename-btn"; renameBtn.title = "Rename"; renameBtn.innerHTML = "✏️";
     renameBtn.onclick = (e) => { e.stopPropagation(); renameSubject(sub.id); };
     const deleteBtn = document.createElement("button");
-    deleteBtn.className = "subject-action-btn delete-btn";
-    deleteBtn.title = "Delete"; deleteBtn.innerHTML = "🗑️";
+    deleteBtn.className = "subject-action-btn delete-btn"; deleteBtn.title = "Delete"; deleteBtn.innerHTML = "🗑️";
     deleteBtn.onclick = (e) => { e.stopPropagation(); deleteSubject(sub.id); };
-    actions.appendChild(renameBtn);
-    actions.appendChild(deleteBtn);
-    div.appendChild(info);
-    div.appendChild(actions);
+    actions.appendChild(renameBtn); actions.appendChild(deleteBtn);
+    div.appendChild(info); div.appendChild(actions);
     list.appendChild(div);
   });
 }
@@ -759,10 +537,7 @@ function renameSubject(id) {
   const newName = prompt("New name for subject:", sub.name);
   if (!newName || !newName.trim()) return;
   sub.name = newName.trim();
-  if (currentSubject?.id === id) {
-    currentSubject.name = sub.name;
-    document.getElementById("subjectTitle").innerText = sub.name;
-  }
+  if (currentSubject?.id === id) { currentSubject.name = sub.name; document.getElementById("subjectTitle").innerText = sub.name; }
   save(); renderSubjects();
 }
 
@@ -875,26 +650,21 @@ function getRelevantChunks(question) {
   if (!currentSubject || !currentSubject.chunks.length) return [];
   const words = question.toLowerCase().split(/\s+/).filter(w => w.length > 2);
   return currentSubject.chunks
-    .map(c => {
-      let score = 0;
-      const t = c.text.toLowerCase();
-      for (let w of words) if (t.includes(w)) score += 2;
-      return { ...c, score };
-    })
+    .map(c => { let score = 0; const t = c.text.toLowerCase(); for (let w of words) if (t.includes(w)) score += 2; return { ...c, score }; })
     .sort((a, b) => b.score - a.score)
     .slice(0, 15);
 }
 
 function getAllChunksContext() {
   if (!currentSubject || !currentSubject.chunks.length) return "";
-  const MAX_CHARS   = 80000;
-  const byFile      = {};
+  const MAX_CHARS = 80000;
+  const byFile = {};
   for (const chunk of currentSubject.chunks) {
     const src = chunk.source || "unknown";
     if (!byFile[src]) byFile[src] = [];
     byFile[src].push(chunk);
   }
-  const files        = Object.keys(byFile);
+  const files = Object.keys(byFile);
   const charsPerFile = Math.floor(MAX_CHARS / files.length);
   const parts = files.map(src => {
     let text = "";
@@ -1064,12 +834,9 @@ function showResultWithBar(btnId, renderer, value) {
   if (existing) existing.remove();
   const bar = document.createElement("div");
   bar.id = "inlineCacheBar";
-  bar.style.cssText = `display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 14px;
-    margin-bottom:14px;border-radius:10px;background:rgba(255,255,255,0.05);
-    border:1px solid rgba(255,255,255,0.1);font-size:0.83rem;color:#888;flex-shrink:0;`;
+  bar.style.cssText = `display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 14px;margin-bottom:14px;border-radius:10px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);font-size:0.83rem;color:#888;flex-shrink:0;`;
   bar.innerHTML = `<span>📌 Showing saved ${TOOL_NAMES[btnId] || "result"}</span>
-    <button id="inlineRegenBtn" style="padding:5px 12px;border-radius:6px;border:1px solid rgba(255,255,255,0.15);
-      background:transparent;color:inherit;cursor:pointer;font-size:0.82rem;white-space:nowrap;">🔄 Regenerate</button>`;
+    <button id="inlineRegenBtn" style="padding:5px 12px;border-radius:6px;border:1px solid rgba(255,255,255,0.15);background:transparent;color:inherit;cursor:pointer;font-size:0.82rem;white-space:nowrap;">🔄 Regenerate</button>`;
   outputDiv.insertBefore(bar, outputDiv.firstChild);
   document.getElementById("inlineRegenBtn").onclick = () => {
     if (!currentSubject) return;
@@ -1158,9 +925,7 @@ function setOutput(html, isHTML = false) {
 function showEditPanel(mode) {
   currentMode = mode;
   const panel = document.getElementById("editPanel");
-  document.getElementById("editPanelTitle").textContent = mode === "flashcard"
-    ? "✏️ Edit Flashcards"
-    : "✏️ Edit Quiz";
+  document.getElementById("editPanelTitle").textContent = mode === "flashcard" ? "✏️ Edit Flashcards" : "✏️ Edit Quiz";
   panel.style.display = "block";
   document.getElementById("editMessages").innerHTML = "";
   document.getElementById("editInput").value        = "";
@@ -1220,11 +985,7 @@ Mark exactly one answer per question with (correct) after it. Output ALL questio
       if (pairs.length > 0) {
         currentFlashcards = pairs;
         if (currentSubject?.cache) { currentSubject.cache["flashcards"] = text; save(); }
-        if (hasFCProgress()) {
-          showFCResumePrompt(pairs);
-        } else {
-          startFlashcardSession(pairs);
-        }
+        if (hasFCProgress()) { showFCResumePrompt(pairs); } else { startFlashcardSession(pairs); }
         typingDiv.innerHTML = `✅ Updated to ${pairs.length} cards.`;
       } else {
         typingDiv.innerHTML = `⚠️ Couldn't parse response as flashcards. Try rephrasing your request.`;
@@ -1234,9 +995,7 @@ Mark exactly one answer per question with (correct) after it. Output ALL questio
   } else {
     systemPrompt = QUIZ_SYSTEM;
     currentData  = currentQuizQuestions.map((q, i) =>
-      `${i + 1}. ${q.q}\n${q.options.map((o, oi) =>
-        `${o.letter}. ${o.text}${oi === q.correct ? " (correct)" : ""}`
-      ).join("\n")}`
+      `${i + 1}. ${q.q}\n${q.options.map((o, oi) => `${o.letter}. ${o.text}${oi === q.correct ? " (correct)" : ""}`).join("\n")}`
     ).join("\n\n");
     renderer = (text) => {
       const qs = parseQuiz(text);
@@ -1258,18 +1017,8 @@ Mark exactly one answer per question with (correct) after it. Output ALL questio
   try {
     const res = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": CLAUDE_API_KEY,
-        "anthropic-version": "2023-06-01",
-        "anthropic-dangerous-direct-browser-access": "true"
-      },
-      body: JSON.stringify({
-        model: CLAUDE_MODEL,
-        max_tokens: 4000,
-        system: systemPrompt,
-        messages: [{ role: "user", content: userPrompt }]
-      })
+      headers: { "Content-Type": "application/json", "x-api-key": CLAUDE_API_KEY, "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true" },
+      body: JSON.stringify({ model: CLAUDE_MODEL, max_tokens: 4000, system: systemPrompt, messages: [{ role: "user", content: userPrompt }] })
     });
     const data = await res.json();
     if (!res.ok) { typingDiv.innerHTML = `API Error: ${data?.error?.message || "Unknown error"}`; return; }
@@ -1337,16 +1086,7 @@ function resumeFCSession() {
   const unknown  = allCards.filter(c => p.unknownIds.includes(c.id));
   const seenIds  = [...p.knownIds, ...p.unknownIds];
   const unseen   = allCards.filter(c => !seenIds.includes(c.id));
-
-  fcSession = {
-    allCards,
-    queue:       shuffle([...unknown, ...unseen]),
-    unknown:     [],
-    known,
-    roundIndex:  0,
-    roundNumber: p.roundNumber || 1,
-    retest:      false
-  };
+  fcSession = { allCards, queue: shuffle([...unknown, ...unseen]), unknown: [], known, roundIndex: 0, roundNumber: p.roundNumber || 1, retest: false };
   renderFCSession();
 }
 
@@ -1356,31 +1096,17 @@ function showFCResumePrompt(pairs) {
   const total = p.allCards.length;
   const pct   = Math.round((done / total) * 100);
   const html  = `
-    <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;
-      gap:18px;padding:48px 24px;text-align:center;">
+    <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;padding:48px 24px;text-align:center;">
       <div style="font-size:2.5rem;">🃏</div>
       <h2 style="margin:0;font-size:1.3rem;font-weight:700;">Resume your session?</h2>
-      <p style="margin:0;opacity:0.6;font-size:0.9rem;">
-        You've mastered <strong>${done} / ${total}</strong> cards — Round ${p.roundNumber}
-      </p>
-      <div style="width:100%;max-width:300px;height:6px;background:rgba(255,255,255,0.08);
-        border-radius:4px;overflow:hidden;">
+      <p style="margin:0;opacity:0.6;font-size:0.9rem;">You've mastered <strong>${done} / ${total}</strong> cards — Round ${p.roundNumber}</p>
+      <div style="width:100%;max-width:300px;height:6px;background:rgba(255,255,255,0.08);border-radius:4px;overflow:hidden;">
         <div style="height:100%;width:${pct}%;background:#4ade80;border-radius:4px;transition:width 0.4s;"></div>
       </div>
-      <button onclick="resumeFCSession()" style="padding:12px 32px;border-radius:10px;
-        border:2px solid rgba(74,222,128,0.4);background:rgba(74,222,128,0.1);
-        color:#4ade80;font-size:1rem;font-weight:700;cursor:pointer;
-        transition:opacity 0.2s;" onmouseover="this.style.opacity='0.8'"
-        onmouseout="this.style.opacity='1'">▶ Resume Session</button>
+      <button onclick="resumeFCSession()" style="padding:12px 32px;border-radius:10px;border:2px solid rgba(74,222,128,0.4);background:rgba(74,222,128,0.1);color:#4ade80;font-size:1rem;font-weight:700;cursor:pointer;">▶ Resume Session</button>
       <div style="display:flex;justify-content:center;gap:10px;flex-wrap:wrap;">
-        <button onclick="startFlashcardSession(currentFlashcards)" style="padding:7px 18px;border-radius:8px;
-          border:1px solid rgba(255,255,255,0.12);background:transparent;color:#555;
-          font-size:0.8rem;cursor:pointer;transition:color 0.2s;" onmouseover="this.style.color='#999'"
-          onmouseout="this.style.color='#555'">↺ Restart from scratch</button>
-        <button onclick="downloadFlashcardsHTML()" style="padding:7px 18px;border-radius:8px;
-          border:1px solid rgba(255,255,255,0.12);background:transparent;color:#555;
-          font-size:0.8rem;cursor:pointer;transition:color 0.2s;" onmouseover="this.style.color='#999'"
-          onmouseout="this.style.color='#555'">⬇️ Download</button>
+        <button onclick="startFlashcardSession(currentFlashcards)" style="padding:7px 18px;border-radius:8px;border:1px solid rgba(255,255,255,0.12);background:transparent;color:#555;font-size:0.8rem;cursor:pointer;">↺ Restart from scratch</button>
+        <button onclick="downloadFlashcardsHTML()" style="padding:7px 18px;border-radius:8px;border:1px solid rgba(255,255,255,0.12);background:transparent;color:#555;font-size:0.8rem;cursor:pointer;">⬇️ Download</button>
       </div>
     </div>`;
   setOutput(html, true);
@@ -1393,11 +1119,7 @@ function renderFlashcards(text) {
   const pairs = parseFlashcards(text);
   if (pairs.length === 0) { setOutput(text); return; }
   currentFlashcards = pairs;
-  if (hasFCProgress()) {
-    showFCResumePrompt(pairs);
-  } else {
-    startFlashcardSession(pairs);
-  }
+  if (hasFCProgress()) { showFCResumePrompt(pairs); } else { startFlashcardSession(pairs); }
   showEditPanel("flashcard");
 }
 
@@ -1411,11 +1133,7 @@ function startFlashcardSession(pairs) {
   fcSession = {
     allCards:    pairs.map((p, i) => ({ ...p, id: i })),
     queue:       pairs.map((p, i) => ({ ...p, id: i })),
-    unknown:     [],
-    known:       [],
-    roundIndex:  0,
-    roundNumber: 1,
-    retest:      false
+    unknown:     [], known: [], roundIndex: 0, roundNumber: 1, retest: false
   };
   renderFCSession();
 }
@@ -1484,32 +1202,16 @@ function renderFCCard(card, isRetest) {
       </div>
       <div class="fc-card" id="fcCard" onclick="fcFlip()">
         <div class="fc-inner" id="fcInner">
-          <div class="fc-front">
-            <span class="fc-side-label">Question</span>
-            <p class="fc-text">${card.q}</p>
-            <span class="fc-hint">Click to reveal answer</span>
-          </div>
-          <div class="fc-back">
-            <span class="fc-side-label">Answer</span>
-            <p class="fc-text">${card.a}</p>
-          </div>
+          <div class="fc-front"><span class="fc-side-label">Question</span><p class="fc-text">${card.q}</p><span class="fc-hint">Click to reveal answer</span></div>
+          <div class="fc-back"><span class="fc-side-label">Answer</span><p class="fc-text">${card.a}</p></div>
         </div>
       </div>
       <div class="fc-verdict" id="fcVerdict" style="display:none;">
-        <button class="fc-btn-unknown" onclick="fcMarkUnknown()" style="display:inline-flex;align-items:center;gap:8px;
-          padding:14px 28px;border-radius:12px;border:2px solid rgba(248,113,113,0.4);
-          background:rgba(248,113,113,0.1);color:#f87171;font-size:1rem;font-weight:600;
-          cursor:pointer;min-width:150px;justify-content:center;"><span>😕</span> Don't Know It</button>
-        <button class="fc-btn-known" onclick="fcMarkKnown()" style="display:inline-flex;align-items:center;gap:8px;
-          padding:14px 28px;border-radius:12px;border:2px solid rgba(74,222,128,0.4);
-          background:rgba(74,222,128,0.1);color:#4ade80;font-size:1rem;font-weight:600;
-          cursor:pointer;min-width:150px;justify-content:center;"><span>💪</span> Know It!</button>
+        <button class="fc-btn-unknown" onclick="fcMarkUnknown()" style="display:inline-flex;align-items:center;gap:8px;padding:14px 28px;border-radius:12px;border:2px solid rgba(248,113,113,0.4);background:rgba(248,113,113,0.1);color:#f87171;font-size:1rem;font-weight:600;cursor:pointer;min-width:150px;justify-content:center;"><span>😕</span> Don't Know It</button>
+        <button class="fc-btn-known" onclick="fcMarkKnown()" style="display:inline-flex;align-items:center;gap:8px;padding:14px 28px;border-radius:12px;border:2px solid rgba(74,222,128,0.4);background:rgba(74,222,128,0.1);color:#4ade80;font-size:1rem;font-weight:600;cursor:pointer;min-width:150px;justify-content:center;"><span>💪</span> Know It!</button>
       </div>
       <div style="display:flex;justify-content:center;margin-top:16px;">
-        <button onclick="startFlashcardSession(currentFlashcards)" style="padding:7px 18px;border-radius:8px;
-          border:1px solid rgba(255,255,255,0.12);background:transparent;color:#555;
-          font-size:0.8rem;cursor:pointer;transition:color 0.2s;" onmouseover="this.style.color='#999'"
-          onmouseout="this.style.color='#555'">↺ Restart</button>
+        <button onclick="startFlashcardSession(currentFlashcards)" style="padding:7px 18px;border-radius:8px;border:1px solid rgba(255,255,255,0.12);background:transparent;color:#555;font-size:0.8rem;cursor:pointer;">↺ Restart</button>
       </div>
       <p class="fc-kb-hint">Space = flip &nbsp;·&nbsp; ← Don't know &nbsp;·&nbsp; → Know it</p>
     </div>`;
@@ -1523,13 +1225,7 @@ window.fcFlip = function () {
   const isFlipped = inner.classList.toggle("flipped");
   if (isFlipped) {
     const verdict = document.getElementById("fcVerdict");
-    if (verdict) {
-      verdict.style.display        = "flex";
-      verdict.style.gap            = "16px";
-      verdict.style.justifyContent = "center";
-      verdict.style.marginTop      = "20px";
-      verdict.style.flexWrap       = "wrap";
-    }
+    if (verdict) { verdict.style.display = "flex"; verdict.style.gap = "16px"; verdict.style.justifyContent = "center"; verdict.style.marginTop = "20px"; verdict.style.flexWrap = "wrap"; }
   }
 };
 
@@ -1574,32 +1270,66 @@ function setupFCSessionKeyboard() {
 function renderFlashcardUI(pairs) { currentFlashcards = pairs; startFlashcardSession(pairs); }
 
 // =========================
-// QUIZ PARSER
+// QUIZ PARSER  ← FIXED
 // =========================
 function parseQuiz(text) {
   text = text.replace(/<think>[\s\S]*?<\/think>/gi, "").trim();
   const questions = [];
-  const blocks    = text.split(/\n(?=\d+[\.\)])/);
+
+  // Split on the start of any numbered question line, works even with no leading newline
+  const blocks = text.split(/(?=^\d+[\.\)]\s)/m).filter(b => b.trim());
+
   for (let block of blocks) {
-    block = block.trim(); if (!block) continue;
-    const lines   = block.split("\n").map(l => l.trim()).filter(Boolean);
+    block = block.trim();
+    if (!block) continue;
+
+    const lines = block.split("\n").map(l => l.trim()).filter(Boolean);
     if (lines.length < 3) continue;
-    const qText   = lines[0].replace(/^\d+[\.\)]\s*/, "");
-    const options = []; let correct = -1;
+
+    // Strip the leading number from the question line
+    const qText = lines[0].replace(/^\d+[\.\)]\s*/, "").trim();
+    if (!qText) continue;
+
+    const options = [];
+    let correct = -1;
+
     for (let i = 1; i < lines.length; i++) {
-      const line  = lines[i];
-      const match = line.match(/^([A-D])[\.\)]\s*(.+)/i);
-      if (match) {
-        const isCorrect = line.includes("✓") || line.toLowerCase().includes("(correct)") || line.includes("*") || line.match(/\[correct\]/i);
-        options.push({ letter: match[1].toUpperCase(), text: match[2].replace(/[✓*]|\(correct\)|\[correct\]/gi, "").trim() });
-        if (isCorrect) correct = options.length - 1;
-      } else if (line.toLowerCase().includes("answer:") || line.toLowerCase().includes("correct:")) {
-        const ans = line.match(/[A-D]/i);
-        if (ans) correct = "ABCD".indexOf(ans[0].toUpperCase());
+      const line = lines[i];
+
+      // Match option lines: "A. text", "A) text", lowercase variants
+      const match = line.match(/^([A-Da-d])[\.\)]\s*(.+)/);
+      if (!match) {
+        // Check for a standalone "Answer: C" line
+        const ansMatch = line.match(/^(?:answer|correct)[:\s]+([A-Da-d])/i);
+        if (ansMatch) { correct = "ABCD".indexOf(ansMatch[1].toUpperCase()); }
+        continue;
       }
+
+      const letter = match[1].toUpperCase();
+      let optText  = match[2].trim();
+
+      // Detect correct marker BEFORE stripping it
+      const isCorrect =
+        /\(correct\)/i.test(optText) ||
+        optText.includes("✓")        ||
+        /\[correct\]/i.test(optText);
+
+      // Strip marker from display text
+      optText = optText
+        .replace(/\s*\(correct\)\s*/gi, "")
+        .replace(/\s*✓\s*/g, "")
+        .replace(/\s*\[correct\]\s*/gi, "")
+        .trim();
+
+      options.push({ letter, text: optText });
+      if (isCorrect) correct = options.length - 1;
     }
-    if (options.length >= 2) questions.push({ q: qText, options, correct });
+
+    if (options.length >= 2) {
+      questions.push({ q: qText, options, correct });
+    }
   }
+
   return questions;
 }
 
@@ -1625,8 +1355,8 @@ function renderQuizUI(questions) {
 // OPEN QUIZ IN NEW TAB
 // =========================
 function openQuizInNewTab(questions) {
-  const subjectName = currentSubject?.name || "Quiz";
-  const date = new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
+  const subjectName   = currentSubject?.name || "Quiz";
+  const date          = new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
   const questionsJSON = JSON.stringify(questions.map(q => ({ q: q.q, options: q.options, correct: q.correct })));
 
   const html = `<!DOCTYPE html>
@@ -1638,64 +1368,27 @@ function openQuizInNewTab(questions) {
   <style>
     @import url('https://fonts.googleapis.com/css2?family=Sora:wght@400;600;700&family=Inter:wght@400;500&display=swap');
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-    body {
-      font-family: 'Inter', sans-serif;
-      background: #0a0a0a;
-      color: #f0f0f0;
-      min-height: 100vh;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      padding: 40px 20px 80px;
-    }
+    body { font-family: 'Inter', sans-serif; background: #0a0a0a; color: #f0f0f0; min-height: 100vh; display: flex; flex-direction: column; align-items: center; padding: 40px 20px 80px; }
     header { text-align: center; margin-bottom: 40px; }
     header h1 { font-family: 'Sora', sans-serif; font-size: 1.8rem; font-weight: 700; margin-bottom: 6px; }
     header p { color: #555; font-size: 0.85rem; }
     .quiz-wrap { width: 100%; max-width: 700px; display: flex; flex-direction: column; gap: 24px; }
-    .question-card {
-      background: #111;
-      border: 1px solid rgba(255,255,255,0.08);
-      border-radius: 16px;
-      padding: 24px 28px;
-      transition: border-color 0.3s, background 0.3s;
-    }
+    .question-card { background: #111; border: 1px solid rgba(255,255,255,0.08); border-radius: 16px; padding: 24px 28px; transition: border-color 0.3s, background 0.3s; }
     .question-card.correct-card { border-color: rgba(74,222,128,0.3); background: rgba(74,222,128,0.04); }
     .question-card.wrong-card   { border-color: rgba(248,113,113,0.3); background: rgba(248,113,113,0.04); }
     .q-num { color: #444; font-size: 0.75rem; letter-spacing: 0.08em; margin-bottom: 10px; }
     .q-text { font-size: 1.05rem; font-weight: 500; margin-bottom: 18px; line-height: 1.55; color: #f0f0f0; }
     .options { display: flex; flex-direction: column; gap: 10px; }
-    .opt-btn {
-      display: flex; align-items: center; gap: 14px;
-      padding: 12px 18px;
-      background: rgba(255,255,255,0.04);
-      border: 1px solid rgba(255,255,255,0.1);
-      border-radius: 10px;
-      color: #ccc;
-      font-size: 0.95rem;
-      font-family: inherit;
-      cursor: pointer;
-      text-align: left;
-      transition: background 0.15s, border-color 0.15s, color 0.15s;
-    }
+    .opt-btn { display: flex; align-items: center; gap: 14px; padding: 12px 18px; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.1); border-radius: 10px; color: #ccc; font-size: 0.95rem; font-family: inherit; cursor: pointer; text-align: left; transition: background 0.15s, border-color 0.15s, color 0.15s; }
     .opt-btn:hover:not(:disabled) { background: rgba(255,255,255,0.09); color: #fff; border-color: rgba(255,255,255,0.2); }
     .opt-btn:disabled { cursor: default; }
-    .opt-btn.is-selected {
-      background: rgba(255,255,255,0.08);
-      border-color: rgba(255,255,255,0.35);
-      color: #fff;
-    }
+    .opt-btn.is-selected      { background: rgba(255,255,255,0.08); border-color: rgba(255,255,255,0.35); color: #fff; }
     .opt-btn.selected-correct { background: rgba(74,222,128,0.12); border-color: rgba(74,222,128,0.5); color: #4ade80; }
     .opt-btn.selected-wrong   { background: rgba(248,113,113,0.12); border-color: rgba(248,113,113,0.5); color: #f87171; }
     .opt-btn.show-correct     { background: rgba(74,222,128,0.08); border-color: rgba(74,222,128,0.3); color: #4ade80; }
-    .opt-letter {
-      display: inline-flex; align-items: center; justify-content: center;
-      width: 26px; height: 26px; min-width: 26px;
-      border-radius: 6px;
-      background: rgba(255,255,255,0.07);
-      font-size: 0.8rem; font-weight: 600; color: #888;
-    }
-    .opt-btn.is-selected     .opt-letter { background: rgba(255,255,255,0.15); color: #fff; }
-    .opt-btn.selected-correct .opt-letter { background: rgba(74,222,128,0.2); color: #4ade80; }
+    .opt-letter { display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; min-width: 26px; border-radius: 6px; background: rgba(255,255,255,0.07); font-size: 0.8rem; font-weight: 600; color: #888; }
+    .opt-btn.is-selected      .opt-letter { background: rgba(255,255,255,0.15); color: #fff; }
+    .opt-btn.selected-correct .opt-letter { background: rgba(74,222,128,0.2);  color: #4ade80; }
     .opt-btn.selected-wrong   .opt-letter { background: rgba(248,113,113,0.2); color: #f87171; }
     .opt-btn.show-correct     .opt-letter { background: rgba(74,222,128,0.15); color: #4ade80; }
     .q-feedback { margin-top: 14px; font-size: 0.88rem; font-weight: 500; display: none; }
@@ -1703,59 +1396,38 @@ function openQuizInNewTab(questions) {
     .q-feedback.correct-fb { color: #4ade80; }
     .q-feedback.wrong-fb   { color: #f87171; }
     .submit-wrap { display: flex; justify-content: center; margin-top: 12px; width: 100%; max-width: 700px; }
-    .submit-btn {
-      padding: 14px 48px; background: #fff; color: #000;
-      font-size: 1rem; font-weight: 700; font-family: inherit;
-      border: none; border-radius: 12px; cursor: pointer;
-      transition: opacity 0.2s;
-    }
+    .submit-btn { padding: 14px 48px; background: #fff; color: #000; font-size: 1rem; font-weight: 700; font-family: inherit; border: none; border-radius: 12px; cursor: pointer; transition: opacity 0.2s; }
     .submit-btn:hover { opacity: 0.88; }
     .submit-btn:disabled { opacity: 0.4; cursor: default; }
     #resultsPanel { display: none; width: 100%; max-width: 700px; margin-top: 16px; }
     #resultsPanel.visible { display: block; }
-    .results-card {
-      background: #111; border: 1px solid rgba(255,255,255,0.1);
-      border-radius: 18px; padding: 36px 32px; text-align: center; margin-bottom: 28px;
-    }
+    .results-card { background: #111; border: 1px solid rgba(255,255,255,0.1); border-radius: 18px; padding: 36px 32px; text-align: center; margin-bottom: 28px; }
     .score-big { font-family: 'Sora', sans-serif; font-size: 4rem; font-weight: 700; margin-bottom: 6px; line-height: 1; }
     .score-big.pass { color: #4ade80; }
     .score-big.fail { color: #f87171; }
     .score-label { color: #555; font-size: 0.9rem; margin-bottom: 20px; }
     .score-bar-wrap { height: 8px; background: rgba(255,255,255,0.07); border-radius: 6px; overflow: hidden; margin: 0 auto 20px; max-width: 320px; }
     .score-bar { height: 100%; border-radius: 6px; transition: width 0.8s cubic-bezier(0.4,0,0.2,1); }
-    .score-bar.high { background: #4ade80; }
-    .score-bar.mid  { background: #facc15; }
-    .score-bar.low  { background: #f87171; }
+    .score-bar.high { background: #4ade80; } .score-bar.mid { background: #facc15; } .score-bar.low { background: #f87171; }
     .chips-row { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; margin-bottom: 20px; }
     .chip { padding: 5px 16px; border-radius: 20px; font-size: 0.82rem; font-weight: 600; }
     .chip.correct-chip { background: rgba(74,222,128,0.1);  color: #4ade80; border: 1px solid rgba(74,222,128,0.25); }
     .chip.wrong-chip   { background: rgba(248,113,113,0.1); color: #f87171; border: 1px solid rgba(248,113,113,0.25); }
     .chip.pct-chip     { background: rgba(255,255,255,0.07); color: #ccc; border: 1px solid rgba(255,255,255,0.15); }
     .verdict-msg { font-size: 1.05rem; font-weight: 500; color: #f0f0f0; margin-bottom: 24px; }
-    .retry-btn {
-      padding: 11px 32px; border-radius: 10px;
-      border: 1px solid rgba(255,255,255,0.15); background: transparent;
-      color: #ccc; font-size: 0.9rem; font-family: inherit; cursor: pointer;
-      transition: background 0.2s, color 0.2s;
-    }
+    .retry-btn { padding: 11px 32px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.15); background: transparent; color: #ccc; font-size: 0.9rem; font-family: inherit; cursor: pointer; transition: background 0.2s, color 0.2s; }
     .retry-btn:hover { background: rgba(255,255,255,0.08); color: #fff; }
     .wrong-review { display: flex; flex-direction: column; gap: 14px; }
     .wrong-review-title { font-family: 'Sora', sans-serif; font-size: 1.1rem; font-weight: 600; color: #f87171; margin-bottom: 4px; }
     .review-item { background: rgba(248,113,113,0.05); border: 1px solid rgba(248,113,113,0.2); border-radius: 12px; padding: 18px 20px; }
     .review-q { font-size: 0.95rem; font-weight: 500; margin-bottom: 10px; color: #f0f0f0; }
     .review-row { display: flex; align-items: flex-start; gap: 8px; font-size: 0.88rem; margin-bottom: 5px; }
-    .review-row:last-child { margin-bottom: 0; }
     .review-label { font-weight: 600; min-width: 70px; }
     .review-label.your  { color: #f87171; }
     .review-label.right { color: #4ade80; }
     .review-val { color: #aaa; }
     footer { margin-top: 56px; color: #2a2a2a; font-size: 0.75rem; text-align: center; }
-    @media (max-width: 560px) {
-      .q-text { font-size: 0.97rem; }
-      .opt-btn { font-size: 0.88rem; padding: 11px 14px; }
-      .score-big { font-size: 3rem; }
-      .results-card { padding: 28px 20px; }
-    }
+    @media (max-width: 560px) { .q-text { font-size: 0.97rem; } .opt-btn { font-size: 0.88rem; padding: 11px 14px; } .score-big { font-size: 3rem; } .results-card { padding: 28px 20px; } }
   </style>
 </head>
 <body>
@@ -1763,42 +1435,42 @@ function openQuizInNewTab(questions) {
     <h1>📝 ${subjectName}</h1>
     <p>Multiple choice quiz · ${questions.length} questions · ${date}</p>
   </header>
-
   <div class="quiz-wrap" id="quizWrap"></div>
-
   <div class="submit-wrap">
     <button class="submit-btn" id="submitBtn" onclick="submitQuiz()">Submit Quiz</button>
   </div>
-
   <div id="resultsPanel">
     <div class="results-card" id="summaryCard"></div>
     <div class="wrong-review" id="wrongReview"></div>
   </div>
-
   <footer>Generated by StudyFlow AI</footer>
-
   <script>
-    const QUESTIONS = ${questionsJSON};
-    const userAnswers = new Array(QUESTIONS.length).fill(null);
-    let submitted = false;
+    var QUESTIONS = ${questionsJSON};
+    var userAnswers = new Array(QUESTIONS.length).fill(null);
+    var submitted = false;
+
+    function esc(str) {
+      return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
 
     function build() {
-      const wrap = document.getElementById('quizWrap');
+      var wrap = document.getElementById('quizWrap');
       wrap.innerHTML = '';
-      QUESTIONS.forEach((q, qi) => {
-        const card = document.createElement('div');
+      QUESTIONS.forEach(function(q, qi) {
+        var card = document.createElement('div');
         card.className = 'question-card';
         card.id = 'qcard-' + qi;
+        var optsHTML = q.options.map(function(opt, oi) {
+          return '<button class="opt-btn" id="opt-' + qi + '-' + oi + '" onclick="pick(' + qi + ',' + oi + ')">'
+            + '<span class="opt-letter">' + esc(opt.letter) + '</span>'
+            + esc(opt.text)
+            + '</button>';
+        }).join('');
         card.innerHTML =
-          '<p class="q-num">QUESTION ' + (qi + 1) + ' OF ' + QUESTIONS.length + '</p>' +
-          '<p class="q-text">' + q.q + '</p>' +
-          '<div class="options" id="opts-' + qi + '">' +
-          q.options.map((opt, oi) =>
-            '<button class="opt-btn" id="opt-' + qi + '-' + oi + '" onclick="pick(' + qi + ',' + oi + ')">' +
-            '<span class="opt-letter">' + opt.letter + '</span>' + opt.text + '</button>'
-          ).join('') +
-          '</div>' +
-          '<div class="q-feedback" id="fb-' + qi + '"></div>';
+          '<p class="q-num">QUESTION ' + (qi + 1) + ' OF ' + QUESTIONS.length + '</p>'
+          + '<p class="q-text">' + esc(q.q) + '</p>'
+          + '<div class="options" id="opts-' + qi + '">' + optsHTML + '</div>'
+          + '<div class="q-feedback" id="fb-' + qi + '"></div>';
         wrap.appendChild(card);
       });
     }
@@ -1806,72 +1478,62 @@ function openQuizInNewTab(questions) {
     function pick(qi, oi) {
       if (submitted) return;
       userAnswers[qi] = oi;
-      document.querySelectorAll('#opts-' + qi + ' .opt-btn').forEach((btn, i) => {
+      document.querySelectorAll('#opts-' + qi + ' .opt-btn').forEach(function(btn, i) {
         btn.classList.toggle('is-selected', i === oi);
       });
       updateSubmitBtn();
     }
 
     function updateSubmitBtn() {
-      const answered = userAnswers.filter(a => a !== null).length;
+      var answered = userAnswers.filter(function(a) { return a !== null; }).length;
       document.getElementById('submitBtn').textContent =
-        answered === QUESTIONS.length
-          ? 'Submit Quiz'
-          : 'Submit Quiz (' + answered + ' / ' + QUESTIONS.length + ' answered)';
+        answered === QUESTIONS.length ? 'Submit Quiz' : 'Submit Quiz (' + answered + ' / ' + QUESTIONS.length + ' answered)';
     }
 
     function submitQuiz() {
       if (submitted) return;
-      const answered = userAnswers.filter(a => a !== null).length;
+      var answered = userAnswers.filter(function(a) { return a !== null; }).length;
       if (answered < QUESTIONS.length) {
-        const missing = QUESTIONS.length - answered;
+        var missing = QUESTIONS.length - answered;
         if (!confirm('You have ' + missing + ' unanswered question' + (missing !== 1 ? 's' : '') + '. Submit anyway?')) return;
       }
       submitted = true;
       document.getElementById('submitBtn').disabled = true;
       document.getElementById('submitBtn').textContent = 'Submitted!';
 
-      let correctCount = 0;
-      const wrongItems = [];
+      var correctCount = 0;
+      var wrongItems = [];
 
-      QUESTIONS.forEach((q, qi) => {
-        const chosen = userAnswers[qi];
-        const isCorrect = chosen !== null && chosen === q.correct;
+      QUESTIONS.forEach(function(q, qi) {
+        var chosen = userAnswers[qi];
+        var isCorrect = chosen !== null && chosen === q.correct;
         if (isCorrect) correctCount++;
-
-        const card = document.getElementById('qcard-' + qi);
-        const fb   = document.getElementById('fb-' + qi);
-        document.querySelectorAll('#opts-' + qi + ' .opt-btn').forEach(b => b.disabled = true);
+        var card = document.getElementById('qcard-' + qi);
+        var fb   = document.getElementById('fb-' + qi);
+        document.querySelectorAll('#opts-' + qi + ' .opt-btn').forEach(function(b) { b.disabled = true; });
 
         if (chosen === null) {
           card.classList.add('wrong-card');
           fb.textContent = '— Not answered';
           fb.className = 'q-feedback visible wrong-fb';
-          if (q.correct >= 0) {
-            const cb = document.getElementById('opt-' + qi + '-' + q.correct);
-            if (cb) cb.classList.add('show-correct');
-          }
-          wrongItems.push({ qi, q, chosen: null });
+          if (q.correct >= 0) { var cb = document.getElementById('opt-' + qi + '-' + q.correct); if (cb) cb.classList.add('show-correct'); }
+          wrongItems.push({ qi: qi, q: q, chosen: null });
         } else if (isCorrect) {
           card.classList.add('correct-card');
-          const cb = document.getElementById('opt-' + qi + '-' + chosen);
-          if (cb) { cb.classList.remove('is-selected'); cb.classList.add('selected-correct'); }
+          var cb2 = document.getElementById('opt-' + qi + '-' + chosen);
+          if (cb2) { cb2.classList.remove('is-selected'); cb2.classList.add('selected-correct'); }
           fb.textContent = '✅ Correct!';
           fb.className = 'q-feedback visible correct-fb';
         } else {
           card.classList.add('wrong-card');
-          const wb = document.getElementById('opt-' + qi + '-' + chosen);
+          var wb = document.getElementById('opt-' + qi + '-' + chosen);
           if (wb) { wb.classList.remove('is-selected'); wb.classList.add('selected-wrong'); }
-          if (q.correct >= 0) {
-            const cb = document.getElementById('opt-' + qi + '-' + q.correct);
-            if (cb) cb.classList.add('show-correct');
-          }
-          const correctLetter = q.correct >= 0 ? ' — correct answer: ' + q.options[q.correct].letter : '';
+          if (q.correct >= 0) { var cb3 = document.getElementById('opt-' + qi + '-' + q.correct); if (cb3) cb3.classList.add('show-correct'); }
+          var correctLetter = q.correct >= 0 ? ' — correct answer: ' + q.options[q.correct].letter : '';
           fb.textContent = '❌ Wrong' + correctLetter;
           fb.className = 'q-feedback visible wrong-fb';
-          wrongItems.push({ qi, q, chosen });
+          wrongItems.push({ qi: qi, q: q, chosen: chosen });
         }
-
         fb.style.display = 'block';
       });
 
@@ -1879,53 +1541,45 @@ function openQuizInNewTab(questions) {
     }
 
     function showResults(correctCount, wrongItems) {
-      const total  = QUESTIONS.length;
-      const pct    = Math.round((correctCount / total) * 100);
-      const passed = pct >= 70;
-      const barClass = pct >= 80 ? 'high' : pct >= 60 ? 'mid' : 'low';
-
-      const verdictText =
+      var total    = QUESTIONS.length;
+      var pct      = Math.round((correctCount / total) * 100);
+      var passed   = pct >= 70;
+      var barClass = pct >= 80 ? 'high' : pct >= 60 ? 'mid' : 'low';
+      var verdictText =
         pct === 100 ? '🎉 Perfect score! Outstanding work!' :
         pct >= 80   ? '🌟 Great job! You really know this material.' :
         pct >= 70   ? '👍 Good work — just a few to review.' :
         pct >= 50   ? '📖 Decent effort, but some gaps to fill.' :
-                      '💪 Keep studying — you\'ll get there!';
+                      "💪 Keep studying — you'll get there!";
 
       document.getElementById('summaryCard').innerHTML =
-        '<div class="score-big ' + (passed ? 'pass' : 'fail') + '">' + pct + '%</div>' +
-        '<p class="score-label">' + correctCount + ' of ' + total + ' correct</p>' +
-        '<div class="score-bar-wrap"><div class="score-bar ' + barClass + '" id="scoreBarFill" style="width:0%"></div></div>' +
-        '<div class="chips-row">' +
-          '<span class="chip correct-chip">✅ Correct: ' + correctCount + '</span>' +
-          '<span class="chip wrong-chip">❌ Wrong: ' + (total - correctCount) + '</span>' +
-          '<span class="chip pct-chip">Score: ' + pct + '%</span>' +
-        '</div>' +
-        '<p class="verdict-msg">' + verdictText + '</p>' +
-        '<button class="retry-btn" onclick="retryQuiz()">↺ Try Again</button>';
+        '<div class="score-big ' + (passed ? 'pass' : 'fail') + '">' + pct + '%</div>'
+        + '<p class="score-label">' + correctCount + ' of ' + total + ' correct</p>'
+        + '<div class="score-bar-wrap"><div class="score-bar ' + barClass + '" id="scoreBarFill" style="width:0%"></div></div>'
+        + '<div class="chips-row"><span class="chip correct-chip">✅ Correct: ' + correctCount + '</span><span class="chip wrong-chip">❌ Wrong: ' + (total - correctCount) + '</span><span class="chip pct-chip">Score: ' + pct + '%</span></div>'
+        + '<p class="verdict-msg">' + verdictText + '</p>'
+        + '<button class="retry-btn" onclick="retryQuiz()">↺ Try Again</button>';
 
-      const panel = document.getElementById('resultsPanel');
+      var panel = document.getElementById('resultsPanel');
       panel.classList.add('visible');
-      setTimeout(() => {
-        const bar = document.getElementById('scoreBarFill');
-        if (bar) bar.style.width = pct + '%';
-      }, 100);
+      setTimeout(function() { var bar = document.getElementById('scoreBarFill'); if (bar) bar.style.width = pct + '%'; }, 100);
       panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
 
-      const reviewWrap = document.getElementById('wrongReview');
+      var reviewWrap = document.getElementById('wrongReview');
       if (wrongItems.length > 0) {
-        reviewWrap.innerHTML = '<p class="wrong-review-title">❌ Questions you got wrong</p>' +
-          wrongItems.map(function(item) {
-            const yourAns = item.chosen !== null
+        reviewWrap.innerHTML = '<p class="wrong-review-title">❌ Questions you got wrong</p>'
+          + wrongItems.map(function(item) {
+            var yourAns = item.chosen !== null
               ? item.q.options[item.chosen].letter + '. ' + item.q.options[item.chosen].text
               : 'Not answered';
-            const correctAns = item.q.correct >= 0
+            var correctAns = item.q.correct >= 0
               ? item.q.options[item.q.correct].letter + '. ' + item.q.options[item.q.correct].text
               : 'N/A';
-            return '<div class="review-item">' +
-              '<p class="review-q">Q' + (item.qi + 1) + '. ' + item.q.q + '</p>' +
-              '<div class="review-row"><span class="review-label your">Your answer:</span><span class="review-val">' + yourAns + '</span></div>' +
-              '<div class="review-row"><span class="review-label right">Correct:</span><span class="review-val">' + correctAns + '</span></div>' +
-              '</div>';
+            return '<div class="review-item">'
+              + '<p class="review-q">Q' + (item.qi + 1) + '. ' + esc(item.q.q) + '</p>'
+              + '<div class="review-row"><span class="review-label your">Your answer:</span><span class="review-val">' + esc(yourAns) + '</span></div>'
+              + '<div class="review-row"><span class="review-label right">Correct:</span><span class="review-val">' + esc(correctAns) + '</span></div>'
+              + '</div>';
           }).join('');
       } else {
         reviewWrap.innerHTML = '<p style="text-align:center;color:#4ade80;font-size:1rem;margin-top:8px;">🎉 You got every question right!</p>';
@@ -1953,7 +1607,8 @@ function openQuizInNewTab(questions) {
   const blob = new Blob([html], { type: "text/html" });
   const url  = URL.createObjectURL(blob);
   window.open(url, "_blank");
-  setTimeout(() => URL.revokeObjectURL(url), 60000);
+  // Keep alive for 5 minutes so the new tab has time to fully load
+  setTimeout(() => URL.revokeObjectURL(url), 300000);
 }
 
 // =========================
@@ -1976,16 +1631,27 @@ Q: [question]
 A: [answer]`, "flashcardBtn", renderFlashcards
 );
 document.getElementById("quizBtn").onclick = () => runToolFull(
-  `Read ALL of the study material and generate a multiple choice question for every major concept, fact, term, and process — minimum 10.
+  `You are reading the COMPLETE study material. Generate a multiple-choice quiz that covers the ENTIRE material from start to finish — every major concept, fact, term, date, and process must be represented.
 
-EXACT FORMAT:
+RULES:
+- Minimum 15 questions; generate more if the material is long.
+- Spread questions EVENLY across ALL topics — do not focus only on the beginning.
+- Each question must have exactly 4 options labelled A, B, C, D.
+- Mark the one correct answer by writing (correct) immediately after the option text, on the same line.
+- No preamble, no explanation, no extra text — output ONLY the numbered questions.
+
+EXACT FORMAT — follow precisely, one blank line between questions:
 1. [Question text]
-A. [option]
-B. [option]
-C. [option] (correct)
-D. [option]
+A. [option text]
+B. [option text]
+C. [option text] (correct)
+D. [option text]
 
-Mark the correct answer with (correct) after it.`, "quizBtn", renderQuiz
+2. [Question text]
+A. [option text]
+B. [option text] (correct)
+C. [option text]
+D. [option text]`, "quizBtn", renderQuiz
 );
 document.getElementById("studyPlanBtn").onclick = () => runTool(
   "Create a structured study plan for mastering this material. Break it into daily sessions with specific topics. Use bold headings and bullet points.", "studyPlanBtn"
