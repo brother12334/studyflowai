@@ -657,7 +657,7 @@ function getRelevantChunks(question) {
 
 function getAllChunksContext() {
   if (!currentSubject || !currentSubject.chunks.length) return "";
-  const MAX_CHARS = 80000;
+  const MAX_CHARS = 12000;
   const byFile = {};
   for (const chunk of currentSubject.chunks) {
     const src = chunk.source || "unknown";
