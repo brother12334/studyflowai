@@ -1631,12 +1631,15 @@ Q: [question]
 A: [answer]`, "flashcardBtn", renderFlashcards
 );
 document.getElementById("quizBtn").onclick = () => runToolFull(
-  `You are reading the COMPLETE study material. Generate a multiple-choice quiz that covers the ENTIRE material from start to finish — every major concept, fact, term, date, and process must be represented.
+  `CRITICAL RULE: Every question and every answer option MUST come ONLY from the study material provided. Do NOT use any outside knowledge, general facts, or information not present in the uploaded files. If a concept is not in the material, do not ask about it.
+
+You are reading the COMPLETE study material. Generate a multiple-choice quiz that covers the ENTIRE material from start to finish — every major concept, fact, term, date, and process must be represented.
 
 RULES:
 - Minimum 15 questions; generate more if the material is long.
 - Spread questions EVENLY across ALL topics — do not focus only on the beginning.
 - Each question must have exactly 4 options labelled A, B, C, D.
+- All answer options (correct AND wrong) must be plausible distractors drawn from the material itself — not generic or invented.
 - Mark the one correct answer by writing (correct) immediately after the option text, on the same line.
 - No preamble, no explanation, no extra text — output ONLY the numbered questions.
 
@@ -1651,21 +1654,9 @@ D. [option text]
 A. [option text]
 B. [option text] (correct)
 C. [option text]
-D. [option text]`, "quizBtn", renderQuiz
+D. [option text]`,
+  "quizBtn", renderQuiz
 );
-document.getElementById("studyPlanBtn").onclick = () => runTool(
-  "Create a structured study plan for mastering this material. Break it into daily sessions with specific topics. Use bold headings and bullet points.", "studyPlanBtn"
-);
-document.getElementById("eli5Btn").onclick = () => runTool(
-  "Explain the main concepts from this study material like I am 5 years old. Use simple words, fun analogies, and bullet points.", "eli5Btn"
-);
-document.getElementById("mnemonicBtn").onclick = () => runTool(
-  "Create memory tricks, mnemonics, and acronyms to help remember the key concepts. Use bold for the mnemonics.", "mnemonicBtn"
-);
-document.getElementById("weaknessBtn").onclick = () => runTool(
-  "Identify the 3-5 most complex or tricky concepts in this material. Use bold headers for each concept, explain why it is difficult, and give tips for mastering it.", "weaknessBtn"
-);
-
 // =========================
 // CHAT
 // =========================
