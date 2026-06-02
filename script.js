@@ -252,7 +252,7 @@ function showLoginScreen() {
         <p style="color:#444;font-size:0.76rem;margin:8px 0 0;line-height:1.5;">Your key is saved <strong style="color:#666">only on this device</strong>. Your subjects sync by username across devices.</p>
       </div>
       <button id="loginSubmitBtn" style="width:100%;padding:13px;background:#fff;border:none;border-radius:10px;color:#000;font-size:0.95rem;font-weight:700;cursor:pointer;font-family:inherit;letter-spacing:0.02em;transition:opacity 0.2s,transform 0.1s;">Sign In / Create Account</button>
-      <p style="text-align:center;color:#333;font-size:0.76rem;margin:20px 0 0;line-height:1.6;">New username = new account &nbsp;·&nbsp; Same username on any device = your data loads</p>
+      <p style="text-align:center;color:#333;font-size:0.76rem;margin:20px 0 0;line-height:1.6;">New username = new account · Same username on any device = your data loads</p>
     </div>`;
   document.body.appendChild(overlay);
 
@@ -489,7 +489,7 @@ const TOOL_NAMES = {
 document.getElementById("newSubjectBtn").onclick = () => {
   const name = prompt("Subject name?");
   if (!name || !name.trim()) return;
-  subjects.push({ id: Date.now(), name: name.trim(), files: [], chunks: [], chatHistory: [], xp: 0, level: 1, streak: 0, cache: {} });
+  subjects.push({ id: Date.now(), name: name.trim(), files: [], chunks: [], chatHistory: [], xp: 0, level: 1, streak: 0, cache: {}, savedQuizzes: [] });
   save(); renderSubjects();
 };
 
@@ -566,6 +566,7 @@ function deleteSubject(id) {
 function loadSubject(id) {
   currentSubject = subjects.find(s => s.id === id);
   if (!currentSubject.cache) currentSubject.cache = {};
+  if (!currentSubject.savedQuizzes) currentSubject.savedQuizzes = [];
   activeTool = null;
   document.getElementById("subjectTitle").innerText    = currentSubject.name;
   document.getElementById("subjectSubtitle").innerText = `${currentSubject.files.length} file(s) uploaded`;
@@ -680,23 +681,151 @@ function getAllChunksContext() {
 // =========================
 // CUT-OFF DETECTION
 // =========================
-function looksComplete(text) {
+function looksComplete(text, mode) {
   const trimmed = text.trimEnd();
+  if (mode === "flashcard") {
+    const lines = trimmed.split("\n").map(l => l.trim()).filter(Boolean);
+    const last  = lines[lines.length - 1] || "";
+    return last.match(/^A[:)]/i) !== null && last.length > 4;
+  }
+  if (mode === "quiz") {
+    const lines = trimmed.split("\n").map(l => l.trim()).filter(Boolean);
+    const last  = lines[lines.length - 1] || "";
+    return last.match(/^[A-Da-d][\.\)]\s+.+/) !== null;
+  }
   return /[.!?\n]$/.test(trimmed) || trimmed.endsWith("</ul>") || trimmed.endsWith("</p>") || /^A[:)].+$/m.test(trimmed);
+}
+
+// =========================
+// COVERAGE SELF-CHECK
+// =========================
+async function selfCheckCoverage(generatedText, materialContext, mode) {
+  const label  = mode === "flashcard" ? "flashcards" : "quiz questions";
+  const prompt = `You are a thorough study assistant auditing a set of ${label}.
+
+Below is the STUDY MATERIAL followed by the GENERATED ${label.toUpperCase()}.
+
+Your job:
+1. List every distinct topic, concept, term, date, formula, and process in the study material.
+2. Check whether the generated ${label} cover each one.
+3. Return ONLY a JSON object — no preamble, no markdown fences:
+{"complete": true/false, "missing": ["topic 1", "topic 2", ...]}
+
+STUDY MATERIAL:
+${materialContext.slice(0, 8000)}
+
+GENERATED ${label.toUpperCase()}:
+${generatedText.slice(0, 6000)}`;
+
+  try {
+    const res = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-api-key": CLAUDE_API_KEY, "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true" },
+      body: JSON.stringify({ model: CLAUDE_MODEL, max_tokens: 1000,
+        system: "You are a coverage auditor. Respond ONLY with a valid JSON object. No markdown, no explanation.",
+        messages: [{ role: "user", content: prompt }]
+      })
+    });
+    const data = await res.json();
+    if (!res.ok) return { complete: true, missing: [] };
+    const raw    = (data?.content?.[0]?.text || "").replace(/```json|```/g, "").trim();
+    const parsed = JSON.parse(raw);
+    return { complete: !!parsed.complete, missing: Array.isArray(parsed.missing) ? parsed.missing : [] };
+  } catch (e) { console.warn("selfCheckCoverage error:", e); return { complete: true, missing: [] }; }
+}
+
+// =========================
+// GENERATE MISSING CONTENT
+// =========================
+async function generateMissingContent(missingTopics, materialContext, mode) {
+  const isFC      = mode === "flashcard";
+  const topicList = missingTopics.map((t, i) => `${i + 1}. ${t}`).join("\n");
+  const formatInstructions = isFC
+    ? `Output ONLY flashcards in this exact format — no preamble:\nQ: [question]\nA: [answer]`
+    : `Output ONLY quiz questions in this exact format — no preamble, one blank line between questions:\n1. [Question text]\nA. [option]\nB. [option]\nC. [option] (correct)\nD. [option]`;
+
+  const prompt = `The following topics were NOT covered in the previously generated ${isFC ? "flashcards" : "quiz"}.
+Generate ${isFC ? "one flashcard per topic" : "one quiz question per topic"} for EACH missing topic below.
+Only use information from the study material. Do not skip any topic.
+
+MISSING TOPICS:\n${topicList}
+
+STUDY MATERIAL:\n${materialContext.slice(0, 10000)}
+
+${formatInstructions}`;
+
+  try {
+    const res = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-api-key": CLAUDE_API_KEY, "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true" },
+      body: JSON.stringify({ model: CLAUDE_MODEL, max_tokens: 4000,
+        system: isFC
+          ? "You are a flashcard generator. Output ONLY Q:/A: pairs. No commentary."
+          : "You are a quiz generator. Output ONLY numbered questions with A/B/C/D options. Mark one answer (correct). No commentary.",
+        messages: [{ role: "user", content: prompt }]
+      })
+    });
+    const data = await res.json();
+    if (!res.ok) return "";
+    return (data?.content?.[0]?.text || "").replace(/<think>[\s\S]*?<\/think>/gi, "").trim();
+  } catch (e) { console.warn("generateMissingContent error:", e); return ""; }
+}
+
+// =========================
+// COVERAGE LOOP
+// =========================
+async function runCoverageLoop(result, context, mode, outputEl) {
+  if (!mode) return result;
+  const MAX_ROUNDS = 3;
+
+  for (let round = 0; round < MAX_ROUNDS; round++) {
+    outputEl.innerHTML = `<p style="opacity:0.5">🔍 Checking coverage (pass ${round + 1} of ${MAX_ROUNDS})...</p>`;
+    const check = await selfCheckCoverage(result, context, mode);
+
+    if (check.complete || check.missing.length === 0) {
+      showToast("✅ Coverage verified — nothing missed!");
+      break;
+    }
+
+    const gapCount = check.missing.length;
+    showToast(`⚠️ Found ${gapCount} uncovered topic${gapCount !== 1 ? "s" : ""} — filling gaps...`, "#facc15");
+    outputEl.innerHTML = `<p style="opacity:0.5">➕ Generating ${gapCount} missing topic${gapCount !== 1 ? "s" : ""}...</p>`;
+
+    const extra = await generateMissingContent(check.missing, context, mode);
+    if (!extra) break;
+
+    if (mode === "quiz") {
+      const existingCount = (result.match(/^\d+\./gm) || []).length;
+      let counter = existingCount + 1;
+      const renumbered = extra.replace(/^\d+\./gm, () => `${counter++}.`);
+      result = result + "\n\n" + renumbered;
+    } else {
+      result = result + "\n\n" + extra;
+    }
+
+    if (round === MAX_ROUNDS - 1 && gapCount > 0) {
+      showToast(`ℹ️ Some topics may still need manual review.`, "#888");
+    }
+  }
+
+  return result;
 }
 
 // =========================
 // CONTINUE IF CUT OFF
 // =========================
-async function continueIfCutOff(result, originalContext, taskPrompt, systemPrompt) {
-  if (looksComplete(result)) return result;
+async function continueIfCutOff(result, originalContext, taskPrompt, systemPrompt, mode) {
+  if (looksComplete(result, mode)) return result;
+
   const userWantsContinue = confirm("⚠️ The response looks like it may have been cut off.\n\nClick OK to continue generating, or Cancel to keep what you have.");
   if (!userWantsContinue) return result;
+
   document.getElementById("output").innerHTML = `<p style="opacity:0.5">⏳ Continuing generation...</p>`;
-  let fullResult = result;
-  let attempts   = 0;
+  let fullResult  = result;
+  let attempts    = 0;
   const MAX_CONTINUES = 4;
-  while (!looksComplete(fullResult) && attempts < MAX_CONTINUES) {
+
+  while (!looksComplete(fullResult, mode) && attempts < MAX_CONTINUES) {
     try {
       const contRes = await fetch("https://api.anthropic.com/v1/messages", {
         method: "POST",
@@ -712,7 +841,7 @@ async function continueIfCutOff(result, originalContext, taskPrompt, systemPromp
       if (!continuation) break;
       fullResult += "\n" + continuation;
       attempts++;
-      if (looksComplete(fullResult)) break;
+      if (looksComplete(fullResult, mode)) break;
       if (attempts < MAX_CONTINUES) {
         const keepGoing = confirm(`⚠️ Still looks incomplete. Continue again? (${MAX_CONTINUES - attempts} attempt${MAX_CONTINUES - attempts !== 1 ? "s" : ""} remaining)`);
         if (!keepGoing) break;
@@ -723,15 +852,22 @@ async function continueIfCutOff(result, originalContext, taskPrompt, systemPromp
 }
 
 // =========================
-// MAP-REDUCE AI
+// MAP-REDUCE AI WITH COVERAGE CHECK
 // =========================
-async function mapReduceAI(taskPrompt, systemPrompt) {
+async function mapReduceAI(taskPrompt, systemPrompt, mode) {
   const context    = getAllChunksContext();
   const BATCH_SIZE = 6000;
+  const OVERLAP    = 300;
   const batches    = [];
-  for (let i = 0; i < context.length; i += BATCH_SIZE) batches.push(context.slice(i, i + BATCH_SIZE));
+  for (let i = 0; i < context.length; i += BATCH_SIZE - OVERLAP) {
+    batches.push(context.slice(i, i + BATCH_SIZE));
+    if (i + BATCH_SIZE >= context.length) break;
+  }
+
+  const outputEl = document.getElementById("output");
 
   if (batches.length === 1) {
+    outputEl.innerHTML = `<p style="opacity:0.5">⏳ Generating from material...</p>`;
     const res = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: { "Content-Type": "application/json", "x-api-key": CLAUDE_API_KEY, "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true" },
@@ -743,17 +879,18 @@ async function mapReduceAI(taskPrompt, systemPrompt) {
     const data = await res.json();
     if (!res.ok) throw new Error(data?.error?.message || "API error");
     let result = data?.content?.[0]?.text?.trim() || "";
-    result = await continueIfCutOff(result, batches[0], taskPrompt, systemPrompt);
+    result = await continueIfCutOff(result, batches[0], taskPrompt, systemPrompt, mode);
+    result = await runCoverageLoop(result, context, mode, outputEl);
     return result;
   }
 
   let partialResults = [];
   for (let i = 0; i < batches.length; i++) {
-    document.getElementById("output").innerHTML = `<p style="opacity:0.5">⏳ Processing section ${i + 1} of ${batches.length}...</p>`;
+    outputEl.innerHTML = `<p style="opacity:0.5">⏳ Reading section ${i + 1} of ${batches.length}...</p>`;
     const res = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: { "Content-Type": "application/json", "x-api-key": CLAUDE_API_KEY, "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true" },
-      body: JSON.stringify({ model: CLAUDE_MODEL, max_tokens: 1500,
+      body: JSON.stringify({ model: CLAUDE_MODEL, max_tokens: 2000,
         system: "You are a study assistant. Extract and preserve ALL key facts, terms, definitions, dates, formulas, and concepts from this material section. Be thorough.",
         messages: [{ role: "user", content: `SUBJECT: ${currentSubject.name}\n\nMATERIAL SECTION ${i + 1} of ${batches.length}:\n${batches[i]}\n\nTASK: ${taskPrompt}` }]
       })
@@ -763,7 +900,7 @@ async function mapReduceAI(taskPrompt, systemPrompt) {
     partialResults.push(data?.content?.[0]?.text?.trim() || "");
   }
 
-  document.getElementById("output").innerHTML = `<p style="opacity:0.5">⏳ Combining all sections into final output...</p>`;
+  outputEl.innerHTML = `<p style="opacity:0.5">⏳ Combining all ${batches.length} sections...</p>`;
   const combined  = partialResults.map((r, i) => `--- Section ${i + 1} ---\n${r}`).join("\n\n");
   const reduceRes = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
@@ -776,7 +913,8 @@ async function mapReduceAI(taskPrompt, systemPrompt) {
   const reduceData = await reduceRes.json();
   if (!reduceRes.ok) throw new Error(reduceData?.error?.message || "API error");
   let result = reduceData?.content?.[0]?.text?.trim() || "";
-  result = await continueIfCutOff(result, combined, taskPrompt, systemPrompt);
+  result = await continueIfCutOff(result, combined, taskPrompt, systemPrompt, mode);
+  result = await runCoverageLoop(result, context, mode, outputEl);
   return result;
 }
 
@@ -799,7 +937,7 @@ async function askAI(prompt, systemPrompt) {
     const data = await res.json();
     if (!res.ok) return `API Error: ${data?.error?.message || "Unknown error"}`;
     let result = data?.content?.[0]?.text?.trim() || "No response.";
-    result = await continueIfCutOff(result, context, prompt, system);
+    result = await continueIfCutOff(result, context, prompt, system, undefined);
     return result;
   } catch (err) { return `Network/API error: ${err.message}`; }
 }
@@ -807,10 +945,10 @@ async function askAI(prompt, systemPrompt) {
 // =========================
 // CLAUDE API — FULL CONTEXT
 // =========================
-async function askAIFull(prompt, systemPrompt) {
+async function askAIFull(prompt, systemPrompt, mode) {
   if (!currentSubject) return "Select a subject first.";
   if (!currentSubject.chunks.length) return "No study material uploaded yet. Add files first.";
-  try { return await mapReduceAI(prompt, systemPrompt); }
+  try { return await mapReduceAI(prompt, systemPrompt, mode); }
   catch (err) { return `Error: ${err.message}`; }
 }
 
@@ -870,7 +1008,7 @@ async function runTool(prompt, btnId, renderer) {
 }
 
 // =========================
-// TOOL RUNNER FULL — map-reduce
+// TOOL RUNNER FULL — map-reduce with coverage check
 // =========================
 async function runToolFull(prompt, btnId, renderer) {
   if (!currentSubject) { alert("Select a subject first."); return; }
@@ -882,18 +1020,26 @@ async function runToolFull(prompt, btnId, renderer) {
     hideEditPanel();
     showResultWithBar(btnId, renderer, currentSubject.cache[cacheKey]);
     if (btnId === "flashcardBtn") showEditPanel("flashcard");
-    else if (btnId === "quizBtn") showEditPanel("quiz");
+    else if (btnId === "quizBtn")  showEditPanel("quiz");
     return;
   }
   activeTool = btnId;
-  const btn = document.getElementById(btnId);
+  const btn  = document.getElementById(btnId);
   btn.disabled = true; btn.classList.add("loading");
   document.getElementById("output").innerHTML = `<p style="opacity:0.5">⏳ Generating from full material...</p>`;
   hideEditPanel(); hideCacheBar();
-  const result = await askAIFull(prompt);
-  if (cacheKey) { currentSubject.cache[cacheKey] = result; save(); }
-  showResultWithBar(btnId, renderer, result);
-  awardXP(10);
+
+  const mode = btnId === "flashcardBtn" ? "flashcard" : btnId === "quizBtn" ? "quiz" : undefined;
+
+  try {
+    const result = await askAIFull(prompt, undefined, mode);
+    if (cacheKey) { currentSubject.cache[cacheKey] = result; save(); }
+    showResultWithBar(btnId, renderer, result);
+    awardXP(10);
+  } catch (e) {
+    document.getElementById("output").innerHTML = `<p style="color:#f87171">Error: ${e.message}</p>`;
+  }
+
   btn.disabled = false; btn.classList.remove("loading");
 }
 
@@ -956,16 +1102,16 @@ async function sendEditMessage() {
   const typingDiv = addEditMessage("⏳ Thinking...", "ai");
 
   const FLASHCARD_SYSTEM = `You are a flashcard editor. The user will ask you to modify a set of flashcards.
-You MUST respond with ONLY the complete updated flashcard set in this EXACT format — no preamble, no explanation, no extra text of any kind:
+You MUST respond with ONLY the complete updated flashcard set in this EXACT format — no preamble, no explanation, no extra text:
 
 Q: [question]
 A: [answer]
 
 Every single card must start with "Q: " on its own line followed by "A: " on the next line.
-Output ALL cards including ones that were not changed. Nothing else — no intro, no summary, no commentary.`;
+Output ALL cards including ones that were not changed. Nothing else.`;
 
   const QUIZ_SYSTEM = `You are a quiz editor. The user will ask you to modify a set of quiz questions.
-You MUST respond with ONLY the complete updated quiz in this EXACT format — no preamble, no explanation, no extra text of any kind:
+You MUST respond with ONLY the complete updated quiz in this EXACT format — no preamble, no explanation:
 
 1. [Question text]
 A. [option]
@@ -973,7 +1119,7 @@ B. [option]
 C. [option] (correct)
 D. [option]
 
-Mark exactly one answer per question with (correct) after it. Output ALL questions including unchanged ones. Nothing else.`;
+Mark exactly one answer per question with (correct) after it. Output ALL questions. Nothing else.`;
 
   let systemPrompt, currentData, renderer;
 
@@ -988,8 +1134,7 @@ Mark exactly one answer per question with (correct) after it. Output ALL questio
         if (hasFCProgress()) { showFCResumePrompt(pairs); } else { startFlashcardSession(pairs); }
         typingDiv.innerHTML = `✅ Updated to ${pairs.length} cards.`;
       } else {
-        typingDiv.innerHTML = `⚠️ Couldn't parse response as flashcards. Try rephrasing your request.`;
-        console.warn("Unparseable AI response:", text);
+        typingDiv.innerHTML = `⚠️ Couldn't parse response as flashcards. Try rephrasing.`;
       }
     };
   } else {
@@ -1006,8 +1151,7 @@ Mark exactly one answer per question with (correct) after it. Output ALL questio
         if (currentSubject?.cache) { currentSubject.cache["quiz"] = text; save(); }
         typingDiv.innerHTML = `✅ Updated to ${qs.length} questions — opened in new tab.`;
       } else {
-        typingDiv.innerHTML = `⚠️ Couldn't parse response as quiz questions. Try rephrasing your request.`;
-        console.warn("Unparseable AI response:", text);
+        typingDiv.innerHTML = `⚠️ Couldn't parse response as quiz questions. Try rephrasing.`;
       }
     };
   }
@@ -1213,7 +1357,7 @@ function renderFCCard(card, isRetest) {
       <div style="display:flex;justify-content:center;margin-top:16px;">
         <button onclick="startFlashcardSession(currentFlashcards)" style="padding:7px 18px;border-radius:8px;border:1px solid rgba(255,255,255,0.12);background:transparent;color:#555;font-size:0.8rem;cursor:pointer;">↺ Restart</button>
       </div>
-      <p class="fc-kb-hint">Space = flip &nbsp;·&nbsp; ← Don't know &nbsp;·&nbsp; → Know it</p>
+      <p class="fc-kb-hint">Space = flip · ← Don't know · → Know it</p>
     </div>`;
   setOutput(html, true);
   setupFCSessionKeyboard();
@@ -1270,23 +1414,18 @@ function setupFCSessionKeyboard() {
 function renderFlashcardUI(pairs) { currentFlashcards = pairs; startFlashcardSession(pairs); }
 
 // =========================
-// QUIZ PARSER  ← FIXED
+// QUIZ PARSER
 // =========================
 function parseQuiz(text) {
   text = text.replace(/<think>[\s\S]*?<\/think>/gi, "").trim();
   const questions = [];
-
-  // Split on the start of any numbered question line, works even with no leading newline
   const blocks = text.split(/(?=^\d+[\.\)]\s)/m).filter(b => b.trim());
 
   for (let block of blocks) {
     block = block.trim();
     if (!block) continue;
-
     const lines = block.split("\n").map(l => l.trim()).filter(Boolean);
     if (lines.length < 3) continue;
-
-    // Strip the leading number from the question line
     const qText = lines[0].replace(/^\d+[\.\)]\s*/, "").trim();
     if (!qText) continue;
 
@@ -1295,32 +1434,16 @@ function parseQuiz(text) {
 
     for (let i = 1; i < lines.length; i++) {
       const line = lines[i];
-
-      // Match option lines: "A. text", "A) text", lowercase variants
       const match = line.match(/^([A-Da-d])[\.\)]\s*(.+)/);
       if (!match) {
-        // Check for a standalone "Answer: C" line
         const ansMatch = line.match(/^(?:answer|correct)[:\s]+([A-Da-d])/i);
         if (ansMatch) { correct = "ABCD".indexOf(ansMatch[1].toUpperCase()); }
         continue;
       }
-
       const letter = match[1].toUpperCase();
       let optText  = match[2].trim();
-
-      // Detect correct marker BEFORE stripping it
-      const isCorrect =
-        /\(correct\)/i.test(optText) ||
-        optText.includes("✓")        ||
-        /\[correct\]/i.test(optText);
-
-      // Strip marker from display text
-      optText = optText
-        .replace(/\s*\(correct\)\s*/gi, "")
-        .replace(/\s*✓\s*/g, "")
-        .replace(/\s*\[correct\]\s*/gi, "")
-        .trim();
-
+      const isCorrect = /\(correct\)/i.test(optText) || optText.includes("✓") || /\[correct\]/i.test(optText);
+      optText = optText.replace(/\s*\(correct\)\s*/gi, "").replace(/\s*✓\s*/g, "").replace(/\s*\[correct\]\s*/gi, "").trim();
       options.push({ letter, text: optText });
       if (isCorrect) correct = options.length - 1;
     }
@@ -1334,7 +1457,7 @@ function parseQuiz(text) {
 }
 
 // =========================
-// QUIZ — opens in new tab
+// QUIZ RENDER ENTRY
 // =========================
 function renderQuiz(text) {
   const questions = parseQuiz(text);
@@ -1352,10 +1475,217 @@ function renderQuizUI(questions) {
 }
 
 // =========================
+// SAVED QUIZZES — MANAGER
+// Shows a panel to create named quizzes with custom instructions,
+// view saved quizzes, open or delete them.
+// =========================
+function showQuizManager() {
+  if (!currentSubject) { alert("Select a subject first."); return; }
+  if (!currentSubject.savedQuizzes) currentSubject.savedQuizzes = [];
+
+  const overlay = document.createElement("div");
+  overlay.id    = "quizManagerOverlay";
+  overlay.style.cssText = `position:fixed;inset:0;z-index:99990;background:rgba(0,0,0,0.75);display:flex;align-items:center;justify-content:center;padding:20px;font-family:'Inter',sans-serif;`;
+
+  overlay.innerHTML = `
+    <div style="width:100%;max-width:600px;max-height:90vh;overflow-y:auto;background:#0d0d0d;border:1px solid rgba(255,255,255,0.1);border-radius:20px;padding:32px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:24px;">
+        <h2 style="margin:0;font-size:1.2rem;font-weight:700;color:#f0f0f0;">📝 Quiz Manager</h2>
+        <button onclick="document.getElementById('quizManagerOverlay').remove()" style="background:none;border:none;color:#555;font-size:1.2rem;cursor:pointer;padding:4px 8px;">✕</button>
+      </div>
+
+      <!-- CREATE NEW QUIZ -->
+      <div style="background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);border-radius:14px;padding:20px;margin-bottom:24px;">
+        <h3 style="margin:0 0 16px;font-size:0.9rem;font-weight:600;color:#aaa;text-transform:uppercase;letter-spacing:0.06em;">Create New Quiz</h3>
+        <div style="margin-bottom:12px;">
+          <label style="display:block;color:#666;font-size:0.75rem;margin-bottom:6px;font-weight:600;letter-spacing:0.05em;text-transform:uppercase;">Quiz Name</label>
+          <input id="qmName" type="text" placeholder="e.g. Chapter 3 Review, Final Exam Prep..." style="width:100%;box-sizing:border-box;padding:10px 14px;background:#161616;border:1px solid rgba(255,255,255,0.09);border-radius:9px;color:#f0f0f0;font-size:0.9rem;outline:none;font-family:inherit;">
+        </div>
+        <div style="margin-bottom:16px;">
+          <label style="display:block;color:#666;font-size:0.75rem;margin-bottom:6px;font-weight:600;letter-spacing:0.05em;text-transform:uppercase;">Custom Instructions <span style="color:#444;font-weight:400;text-transform:none;">(optional)</span></label>
+          <textarea id="qmInstructions" rows="4" placeholder="e.g. Focus only on Chapter 3. Make questions harder than usual. Include 5 true/false questions. Emphasise dates and names. Ask about causes and effects..." style="width:100%;box-sizing:border-box;padding:10px 14px;background:#161616;border:1px solid rgba(255,255,255,0.09);border-radius:9px;color:#f0f0f0;font-size:0.88rem;outline:none;font-family:inherit;resize:vertical;line-height:1.5;"></textarea>
+          <p style="color:#444;font-size:0.75rem;margin:6px 0 0;">Leave blank to use the default "cover everything" prompt.</p>
+        </div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;">
+          <select id="qmDifficulty" style="padding:9px 12px;background:#161616;border:1px solid rgba(255,255,255,0.09);border-radius:9px;color:#aaa;font-size:0.88rem;font-family:inherit;outline:none;">
+            <option value="standard">Standard difficulty</option>
+            <option value="easy">Easy — recall & recognition</option>
+            <option value="hard">Hard — application & analysis</option>
+            <option value="mixed">Mixed difficulty</option>
+          </select>
+          <select id="qmCount" style="padding:9px 12px;background:#161616;border:1px solid rgba(255,255,255,0.09);border-radius:9px;color:#aaa;font-size:0.88rem;font-family:inherit;outline:none;">
+            <option value="15">~15 questions</option>
+            <option value="25">~25 questions</option>
+            <option value="40">~40 questions</option>
+            <option value="max">As many as possible</option>
+          </select>
+        </div>
+        <button id="qmGenerateBtn" onclick="generateNamedQuiz()" style="margin-top:16px;width:100%;padding:12px;background:#fff;color:#000;border:none;border-radius:10px;font-size:0.92rem;font-weight:700;cursor:pointer;font-family:inherit;transition:opacity 0.2s;">⚡ Generate Quiz</button>
+      </div>
+
+      <!-- SAVED QUIZZES LIST -->
+      <div>
+        <h3 style="margin:0 0 14px;font-size:0.9rem;font-weight:600;color:#aaa;text-transform:uppercase;letter-spacing:0.06em;">Saved Quizzes <span id="qmCount" style="color:#555;font-weight:400;">(${currentSubject.savedQuizzes.length})</span></h3>
+        <div id="qmSavedList"></div>
+      </div>
+    </div>`;
+
+  document.body.appendChild(overlay);
+  overlay.addEventListener("click", (e) => { if (e.target === overlay) overlay.remove(); });
+  renderSavedQuizList();
+}
+
+function renderSavedQuizList() {
+  const list = document.getElementById("qmSavedList");
+  if (!list || !currentSubject) return;
+  document.getElementById("qmCount").textContent = `(${currentSubject.savedQuizzes.length})`;
+
+  if (!currentSubject.savedQuizzes.length) {
+    list.innerHTML = `<p style="color:#444;font-size:0.85rem;text-align:center;padding:20px 0;">No saved quizzes yet. Create one above!</p>`;
+    return;
+  }
+
+  list.innerHTML = currentSubject.savedQuizzes.map((q, i) => `
+    <div style="display:flex;align-items:center;gap:12px;padding:13px 16px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.07);border-radius:12px;margin-bottom:8px;">
+      <div style="flex:1;min-width:0;">
+        <div style="color:#f0f0f0;font-weight:600;font-size:0.9rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escHTML(q.name)}</div>
+        <div style="color:#555;font-size:0.76rem;margin-top:3px;">${q.questions.length} questions · ${new Date(q.createdAt).toLocaleDateString()}</div>
+        ${q.instructions ? `<div style="color:#444;font-size:0.75rem;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">📋 ${escHTML(q.instructions.slice(0, 60))}${q.instructions.length > 60 ? "…" : ""}</div>` : ""}
+      </div>
+      <div style="display:flex;gap:6px;flex-shrink:0;">
+        <button onclick="openSavedQuiz(${i})" style="padding:7px 14px;border-radius:8px;border:1px solid rgba(255,255,255,0.12);background:transparent;color:#ccc;font-size:0.8rem;cursor:pointer;white-space:nowrap;">▶ Open</button>
+        <button onclick="renameSavedQuiz(${i})" style="padding:7px 10px;border-radius:8px;border:1px solid rgba(255,255,255,0.08);background:transparent;color:#666;font-size:0.8rem;cursor:pointer;" title="Rename">✏️</button>
+        <button onclick="deleteSavedQuiz(${i})" style="padding:7px 10px;border-radius:8px;border:1px solid rgba(248,113,113,0.2);background:transparent;color:#f87171;font-size:0.8rem;cursor:pointer;" title="Delete">🗑️</button>
+      </div>
+    </div>`).join("");
+}
+
+function escHTML(str) {
+  return String(str).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+}
+
+async function generateNamedQuiz() {
+  if (!currentSubject) return;
+  if (!currentSubject.chunks.length) { showToast("Upload study files first.", "#f87171"); return; }
+
+  const nameEl         = document.getElementById("qmName");
+  const instructionsEl = document.getElementById("qmInstructions");
+  const diffEl         = document.getElementById("qmDifficulty");
+  const countEl        = document.getElementById("qmCount");
+  const genBtn         = document.getElementById("qmGenerateBtn");
+
+  const rawName        = (nameEl?.value || "").trim();
+  const name           = rawName || `Quiz ${(currentSubject.savedQuizzes.length + 1)}`;
+  const customInstr    = (instructionsEl?.value || "").trim();
+  const difficulty     = diffEl?.value || "standard";
+  const countVal       = countEl?.value || "15";
+
+  const difficultyText = {
+    standard: "Use a mix of recall, comprehension, and application questions.",
+    easy:     "Focus on straightforward recall and recognition. Questions should be accessible.",
+    hard:     "Focus on application, analysis, and higher-order thinking. Avoid simple recall.",
+    mixed:    "Include easy, medium, and hard questions in roughly equal proportions."
+  }[difficulty];
+
+  const countText = countVal === "max"
+    ? "Generate as many questions as possible — cover every major concept."
+    : `Generate approximately ${countVal} questions.`;
+
+  const basePrompt = `CRITICAL RULE: Every question and every answer option MUST come ONLY from the study material. Do NOT use any outside knowledge.
+
+You are reading the COMPLETE study material. Generate a multiple-choice quiz.
+
+RULES:
+- ${countText}
+- ${difficultyText}
+- Each question must have exactly 4 options labelled A, B, C, D.
+- All answer options must be plausible distractors drawn from the material.
+- Mark the one correct answer by writing (correct) immediately after the option text.
+- No preamble, no explanation — output ONLY the numbered questions.
+${customInstr ? `\nADDITIONAL INSTRUCTIONS FROM USER:\n${customInstr}` : ""}
+
+EXACT FORMAT — follow precisely, one blank line between questions:
+1. [Question text]
+A. [option text]
+B. [option text]
+C. [option text] (correct)
+D. [option text]`;
+
+  if (genBtn) { genBtn.disabled = true; genBtn.textContent = "⏳ Generating…"; }
+
+  try {
+    const result = await askAIFull(basePrompt, undefined, "quiz");
+    const questions = parseQuiz(result);
+
+    if (questions.length === 0) {
+      showToast("Couldn't parse quiz output. Try again.", "#f87171");
+      if (genBtn) { genBtn.disabled = false; genBtn.textContent = "⚡ Generate Quiz"; }
+      return;
+    }
+
+    if (!currentSubject.savedQuizzes) currentSubject.savedQuizzes = [];
+    currentSubject.savedQuizzes.push({
+      id:           Date.now(),
+      name,
+      instructions: customInstr,
+      difficulty,
+      questions,
+      rawText:      result,
+      createdAt:    Date.now()
+    });
+    save();
+
+    currentQuizQuestions = questions;
+    openQuizInNewTab(questions, name);
+    renderSavedQuizList();
+    awardXP(10);
+    showToast(`✅ "${name}" saved — ${questions.length} questions`);
+
+    // Reset form
+    if (nameEl)         nameEl.value         = "";
+    if (instructionsEl) instructionsEl.value = "";
+    if (diffEl)         diffEl.value         = "standard";
+    if (countEl)        countEl.value        = "15";
+
+  } catch (e) {
+    showToast("Error generating quiz: " + e.message, "#f87171");
+  }
+
+  if (genBtn) { genBtn.disabled = false; genBtn.textContent = "⚡ Generate Quiz"; }
+}
+
+function openSavedQuiz(index) {
+  if (!currentSubject?.savedQuizzes?.[index]) return;
+  const q = currentSubject.savedQuizzes[index];
+  currentQuizQuestions = q.questions;
+  openQuizInNewTab(q.questions, q.name);
+}
+
+function renameSavedQuiz(index) {
+  if (!currentSubject?.savedQuizzes?.[index]) return;
+  const q       = currentSubject.savedQuizzes[index];
+  const newName = prompt("Rename quiz:", q.name);
+  if (!newName || !newName.trim()) return;
+  q.name = newName.trim();
+  save();
+  renderSavedQuizList();
+}
+
+function deleteSavedQuiz(index) {
+  if (!currentSubject?.savedQuizzes?.[index]) return;
+  const q = currentSubject.savedQuizzes[index];
+  if (!confirm(`Delete "${q.name}"? This cannot be undone.`)) return;
+  currentSubject.savedQuizzes.splice(index, 1);
+  save();
+  renderSavedQuizList();
+  showToast(`🗑️ "${q.name}" deleted`);
+}
+
+// =========================
 // OPEN QUIZ IN NEW TAB
 // =========================
-function openQuizInNewTab(questions) {
-  const subjectName   = currentSubject?.name || "Quiz";
+function openQuizInNewTab(questions, quizTitle) {
+  const subjectName   = quizTitle || currentSubject?.name || "Quiz";
   const date          = new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
   const questionsJSON = JSON.stringify(questions.map(q => ({ q: q.q, options: q.options, correct: q.correct })));
 
@@ -1607,7 +1937,6 @@ function openQuizInNewTab(questions) {
   const blob = new Blob([html], { type: "text/html" });
   const url  = URL.createObjectURL(blob);
   window.open(url, "_blank");
-  // Keep alive for 5 minutes so the new tab has time to fully load
   setTimeout(() => URL.revokeObjectURL(url), 300000);
 }
 
@@ -1618,7 +1947,7 @@ document.getElementById("summarizeBtn").onclick = () => runTool(
   "Summarize all the key concepts and important points from this study material. Use headers, bold key terms, and bullet points.", "summarizeBtn"
 );
 document.getElementById("flashcardBtn").onclick = () => runToolFull(
-  `Read ALL of the study material and create a flashcard for EVERY distinct fact, term, definition, concept, date, formula, process, and key point — no matter how many cards that takes. Do not stop early. Do not group things together to save cards.
+  `Read ALL of the study material and create a flashcard for EVERY distinct fact, term, definition, concept, date, formula, process, and key point.
 
 STRICT RULES:
 - One card per fact. If there are 40 facts, make 40 cards.
@@ -1630,33 +1959,11 @@ EXACT FORMAT:
 Q: [question]
 A: [answer]`, "flashcardBtn", renderFlashcards
 );
-document.getElementById("quizBtn").onclick = () => runToolFull(
-  `CRITICAL RULE: Every question and every answer option MUST come ONLY from the study material provided. Do NOT use any outside knowledge, general facts, or information not present in the uploaded files. If a concept is not in the material, do not ask about it.
+document.getElementById("quizBtn").onclick = () => {
+  // The default quiz button now opens the Quiz Manager
+  showQuizManager();
+};
 
-You are reading the COMPLETE study material. Generate a multiple-choice quiz that covers the ENTIRE material from start to finish — every major concept, fact, term, date, and process must be represented.
-
-RULES:
-- Minimum 15 questions; generate more if the material is long.
-- Spread questions EVENLY across ALL topics — do not focus only on the beginning.
-- Each question must have exactly 4 options labelled A, B, C, D.
-- All answer options (correct AND wrong) must be plausible distractors drawn from the material itself — not generic or invented.
-- Mark the one correct answer by writing (correct) immediately after the option text, on the same line.
-- No preamble, no explanation, no extra text — output ONLY the numbered questions.
-
-EXACT FORMAT — follow precisely, one blank line between questions:
-1. [Question text]
-A. [option text]
-B. [option text]
-C. [option text] (correct)
-D. [option text]
-
-2. [Question text]
-A. [option text]
-B. [option text] (correct)
-C. [option text]
-D. [option text]`,
-  "quizBtn", renderQuiz
-);
 // =========================
 // CHAT
 // =========================
