@@ -660,19 +660,6 @@ function getAllChunksContext() {
   if (!currentSubject || !currentSubject.chunks.length) return "";
   return currentSubject.chunks.map(c => c.text).join("\n\n");
 }
-  const files = Object.keys(byFile);
-  const charsPerFile = Math.floor(MAX_CHARS / files.length);
-  const parts = files.map(src => {
-    let text = "";
-    for (const chunk of byFile[src]) {
-      if (text.length + chunk.text.length > charsPerFile) break;
-      text += chunk.text + "\n\n";
-    }
-    return `--- Source: ${src} ---\n` + text.trim();
-  });
-  return parts.join("\n\n");
-}
-
 // =========================
 // CUT-OFF DETECTION
 // =========================
