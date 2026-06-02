@@ -853,7 +853,7 @@ async function mapReduceAI(taskPrompt, systemPrompt, mode) {
       method: "POST",
       headers: { "Content-Type": "application/json", "x-api-key": CLAUDE_API_KEY, "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true" },
       body: JSON.stringify({ model: CLAUDE_MODEL, max_tokens: 8000,
-        system: systemPrompt || "You are a study assistant. Use ONLY the provided material. Be complete and accurate.",
+        system: systemPrompt || "You are a study assistant. List every single fact, term, definition, date, formula, concept, and key point from this section as short bullet points. One bullet per fact. Be exhaustive.",
         messages: [{ role: "user", content: `SUBJECT: ${currentSubject.name}\n\nSTUDY MATERIAL:\n${batches[0]}\n\nTASK:\n${taskPrompt}` }]
       })
     });
@@ -871,7 +871,7 @@ async function mapReduceAI(taskPrompt, systemPrompt, mode) {
     const res = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: { "Content-Type": "application/json", "x-api-key": CLAUDE_API_KEY, "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true" },
-      body: JSON.stringify({ model: CLAUDE_MODEL, max_tokens: 2000,
+      body: JSON.stringify({ model: CLAUDE_MODEL, max_tokens: 3000,
         system: "You are a study assistant. Extract and preserve ALL key facts, terms, definitions, dates, formulas, and concepts from this material section. Be thorough.",
         messages: [{ role: "user", content: `SUBJECT: ${currentSubject.name}\n\nMATERIAL SECTION ${i + 1} of ${batches.length}:\n${batches[i]}\n\nTASK: ${taskPrompt}` }]
       })
@@ -886,7 +886,7 @@ async function mapReduceAI(taskPrompt, systemPrompt, mode) {
   const reduceRes = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: { "Content-Type": "application/json", "x-api-key": CLAUDE_API_KEY, "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true" },
-    body: JSON.stringify({ model: CLAUDE_MODEL, max_tokens: 8000,
+    body: JSON.stringify({ model: CLAUDE_MODEL, max_tokens: 16000,
       system: systemPrompt || "You are a study assistant. Combine the section results into one complete, well-organized final output. Do not lose any facts or cards.",
       messages: [{ role: "user", content: `SUBJECT: ${currentSubject.name}\n\nSECTION RESULTS:\n${combined}\n\nFINAL TASK: ${taskPrompt}` }]
     })
