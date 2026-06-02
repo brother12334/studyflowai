@@ -658,13 +658,8 @@ function getRelevantChunks(question) {
 
 function getAllChunksContext() {
   if (!currentSubject || !currentSubject.chunks.length) return "";
-  const MAX_CHARS = 120000;
-  const byFile = {};
-  for (const chunk of currentSubject.chunks) {
-    const src = chunk.source || "unknown";
-    if (!byFile[src]) byFile[src] = [];
-    byFile[src].push(chunk);
-  }
+  return currentSubject.chunks.map(c => c.text).join("\n\n");
+}
   const files = Object.keys(byFile);
   const charsPerFile = Math.floor(MAX_CHARS / files.length);
   const parts = files.map(src => {
@@ -830,7 +825,7 @@ async function continueIfCutOff(result, originalContext, taskPrompt, systemPromp
       const contRes = await fetch("https://api.anthropic.com/v1/messages", {
         method: "POST",
         headers: { "Content-Type": "application/json", "x-api-key": CLAUDE_API_KEY, "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true" },
-        body: JSON.stringify({ model: CLAUDE_MODEL, max_tokens: 4000,
+        body: JSON.stringify({ model: CLAUDE_MODEL, max_tokens: 8000,
           system: systemPrompt || "You are a study assistant. Continue exactly where the previous output left off. Do not repeat anything already written.",
           messages: [{ role: "user", content: `SUBJECT: ${currentSubject.name}\n\nCONTEXT:\n${originalContext}\n\nTASK: ${taskPrompt}\n\nCONTINUE FROM HERE (do not repeat, just continue):\n${fullResult}` }]
         })
@@ -870,7 +865,7 @@ async function mapReduceAI(taskPrompt, systemPrompt, mode) {
     const res = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: { "Content-Type": "application/json", "x-api-key": CLAUDE_API_KEY, "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true" },
-      body: JSON.stringify({ model: CLAUDE_MODEL, max_tokens: 4000,
+      body: JSON.stringify({ model: CLAUDE_MODEL, max_tokens: 8000,
         system: systemPrompt || "You are a study assistant. Use ONLY the provided material. Be complete and accurate.",
         messages: [{ role: "user", content: `SUBJECT: ${currentSubject.name}\n\nSTUDY MATERIAL:\n${batches[0]}\n\nTASK:\n${taskPrompt}` }]
       })
@@ -904,7 +899,7 @@ async function mapReduceAI(taskPrompt, systemPrompt, mode) {
   const reduceRes = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: { "Content-Type": "application/json", "x-api-key": CLAUDE_API_KEY, "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true" },
-    body: JSON.stringify({ model: CLAUDE_MODEL, max_tokens: 4000,
+    body: JSON.stringify({ model: CLAUDE_MODEL, max_tokens: 8000,
       system: systemPrompt || "You are a study assistant. Combine the section results into one complete, well-organized final output. Do not lose any facts or cards.",
       messages: [{ role: "user", content: `SUBJECT: ${currentSubject.name}\n\nSECTION RESULTS:\n${combined}\n\nFINAL TASK: ${taskPrompt}` }]
     })
