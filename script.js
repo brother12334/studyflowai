@@ -660,6 +660,7 @@ function getAllChunksContext() {
   if (!currentSubject || !currentSubject.chunks.length) return "";
   return currentSubject.chunks.map(c => c.text).join("\n\n");
 }
+
 // =========================
 // CUT-OFF DETECTION
 // =========================
@@ -847,13 +848,14 @@ async function mapReduceAI(taskPrompt, systemPrompt, mode) {
 
   const outputEl = document.getElementById("output");
 
+  // ── Single batch path ──
   if (batches.length === 1) {
     outputEl.innerHTML = `<p style="opacity:0.5">⏳ Generating from material...</p>`;
     const res = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: { "Content-Type": "application/json", "x-api-key": CLAUDE_API_KEY, "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true" },
       body: JSON.stringify({ model: CLAUDE_MODEL, max_tokens: 8000,
-        system: systemPrompt || "You are a study assistant. List every single fact, term, definition, date, formula, concept, and key point from this section as short bullet points. One bullet per fact. Be exhaustive.",
+        system: systemPrompt || "You are a study assistant. Use ONLY the provided material. Be complete and accurate.",
         messages: [{ role: "user", content: `SUBJECT: ${currentSubject.name}\n\nSTUDY MATERIAL:\n${batches[0]}\n\nTASK:\n${taskPrompt}` }]
       })
     });
@@ -865,6 +867,7 @@ async function mapReduceAI(taskPrompt, systemPrompt, mode) {
     return result;
   }
 
+  // ── Multi-batch map phase ──
   let partialResults = [];
   for (let i = 0; i < batches.length; i++) {
     outputEl.innerHTML = `<p style="opacity:0.5">⏳ Reading section ${i + 1} of ${batches.length}...</p>`;
@@ -872,7 +875,7 @@ async function mapReduceAI(taskPrompt, systemPrompt, mode) {
       method: "POST",
       headers: { "Content-Type": "application/json", "x-api-key": CLAUDE_API_KEY, "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true" },
       body: JSON.stringify({ model: CLAUDE_MODEL, max_tokens: 3000,
-        system: "You are a study assistant. Extract and preserve ALL key facts, terms, definitions, dates, formulas, and concepts from this material section. Be thorough.",
+        system: "You are a study assistant. List every single fact, term, definition, date, formula, concept, and key point from this section as short bullet points. One bullet per fact. Be exhaustive.",
         messages: [{ role: "user", content: `SUBJECT: ${currentSubject.name}\n\nMATERIAL SECTION ${i + 1} of ${batches.length}:\n${batches[i]}\n\nTASK: ${taskPrompt}` }]
       })
     });
@@ -881,6 +884,7 @@ async function mapReduceAI(taskPrompt, systemPrompt, mode) {
     partialResults.push(data?.content?.[0]?.text?.trim() || "");
   }
 
+  // ── Reduce phase ──
   outputEl.innerHTML = `<p style="opacity:0.5">⏳ Combining all ${batches.length} sections...</p>`;
   const combined  = partialResults.map((r, i) => `--- Section ${i + 1} ---\n${r}`).join("\n\n");
   const reduceRes = await fetch("https://api.anthropic.com/v1/messages", {
@@ -1457,8 +1461,6 @@ function renderQuizUI(questions) {
 
 // =========================
 // SAVED QUIZZES — MANAGER
-// Shows a panel to create named quizzes with custom instructions,
-// view saved quizzes, open or delete them.
 // =========================
 function showQuizManager() {
   if (!currentSubject) { alert("Select a subject first."); return; }
@@ -1474,8 +1476,6 @@ function showQuizManager() {
         <h2 style="margin:0;font-size:1.2rem;font-weight:700;color:#f0f0f0;">📝 Quiz Manager</h2>
         <button onclick="document.getElementById('quizManagerOverlay').remove()" style="background:none;border:none;color:#555;font-size:1.2rem;cursor:pointer;padding:4px 8px;">✕</button>
       </div>
-
-      <!-- CREATE NEW QUIZ -->
       <div style="background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);border-radius:14px;padding:20px;margin-bottom:24px;">
         <h3 style="margin:0 0 16px;font-size:0.9rem;font-weight:600;color:#aaa;text-transform:uppercase;letter-spacing:0.06em;">Create New Quiz</h3>
         <div style="margin-bottom:12px;">
@@ -1503,8 +1503,6 @@ function showQuizManager() {
         </div>
         <button id="qmGenerateBtn" onclick="generateNamedQuiz()" style="margin-top:16px;width:100%;padding:12px;background:#fff;color:#000;border:none;border-radius:10px;font-size:0.92rem;font-weight:700;cursor:pointer;font-family:inherit;transition:opacity 0.2s;">⚡ Generate Quiz</button>
       </div>
-
-      <!-- SAVED QUIZZES LIST -->
       <div>
         <h3 style="margin:0 0 14px;font-size:0.9rem;font-weight:600;color:#aaa;text-transform:uppercase;letter-spacing:0.06em;">Saved Quizzes <span id="qmCount" style="color:#555;font-weight:400;">(${currentSubject.savedQuizzes.length})</span></h3>
         <div id="qmSavedList"></div>
@@ -1555,11 +1553,11 @@ async function generateNamedQuiz() {
   const countEl        = document.getElementById("qmCount");
   const genBtn         = document.getElementById("qmGenerateBtn");
 
-  const rawName        = (nameEl?.value || "").trim();
-  const name           = rawName || `Quiz ${(currentSubject.savedQuizzes.length + 1)}`;
-  const customInstr    = (instructionsEl?.value || "").trim();
-  const difficulty     = diffEl?.value || "standard";
-  const countVal       = countEl?.value || "15";
+  const rawName     = (nameEl?.value || "").trim();
+  const name        = rawName || `Quiz ${(currentSubject.savedQuizzes.length + 1)}`;
+  const customInstr = (instructionsEl?.value || "").trim();
+  const difficulty  = diffEl?.value || "standard";
+  const countVal    = countEl?.value || "15";
 
   const difficultyText = {
     standard: "Use a mix of recall, comprehension, and application questions.",
@@ -1595,7 +1593,7 @@ D. [option text]`;
   if (genBtn) { genBtn.disabled = true; genBtn.textContent = "⏳ Generating…"; }
 
   try {
-    const result = await askAIFull(basePrompt, undefined, "quiz");
+    const result    = await askAIFull(basePrompt, undefined, "quiz");
     const questions = parseQuiz(result);
 
     if (questions.length === 0) {
@@ -1606,13 +1604,8 @@ D. [option text]`;
 
     if (!currentSubject.savedQuizzes) currentSubject.savedQuizzes = [];
     currentSubject.savedQuizzes.push({
-      id:           Date.now(),
-      name,
-      instructions: customInstr,
-      difficulty,
-      questions,
-      rawText:      result,
-      createdAt:    Date.now()
+      id: Date.now(), name, instructions: customInstr, difficulty,
+      questions, rawText: result, createdAt: Date.now()
     });
     save();
 
@@ -1622,7 +1615,6 @@ D. [option text]`;
     awardXP(10);
     showToast(`✅ "${name}" saved — ${questions.length} questions`);
 
-    // Reset form
     if (nameEl)         nameEl.value         = "";
     if (instructionsEl) instructionsEl.value = "";
     if (diffEl)         diffEl.value         = "standard";
@@ -1759,11 +1751,7 @@ function openQuizInNewTab(questions, quizTitle) {
     var QUESTIONS = ${questionsJSON};
     var userAnswers = new Array(QUESTIONS.length).fill(null);
     var submitted = false;
-
-    function esc(str) {
-      return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-    }
-
+    function esc(str) { return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
     function build() {
       var wrap = document.getElementById('quizWrap');
       wrap.innerHTML = '';
@@ -1773,34 +1761,26 @@ function openQuizInNewTab(questions, quizTitle) {
         card.id = 'qcard-' + qi;
         var optsHTML = q.options.map(function(opt, oi) {
           return '<button class="opt-btn" id="opt-' + qi + '-' + oi + '" onclick="pick(' + qi + ',' + oi + ')">'
-            + '<span class="opt-letter">' + esc(opt.letter) + '</span>'
-            + esc(opt.text)
-            + '</button>';
+            + '<span class="opt-letter">' + esc(opt.letter) + '</span>' + esc(opt.text) + '</button>';
         }).join('');
-        card.innerHTML =
-          '<p class="q-num">QUESTION ' + (qi + 1) + ' OF ' + QUESTIONS.length + '</p>'
+        card.innerHTML = '<p class="q-num">QUESTION ' + (qi + 1) + ' OF ' + QUESTIONS.length + '</p>'
           + '<p class="q-text">' + esc(q.q) + '</p>'
           + '<div class="options" id="opts-' + qi + '">' + optsHTML + '</div>'
           + '<div class="q-feedback" id="fb-' + qi + '"></div>';
         wrap.appendChild(card);
       });
     }
-
     function pick(qi, oi) {
       if (submitted) return;
       userAnswers[qi] = oi;
-      document.querySelectorAll('#opts-' + qi + ' .opt-btn').forEach(function(btn, i) {
-        btn.classList.toggle('is-selected', i === oi);
-      });
+      document.querySelectorAll('#opts-' + qi + ' .opt-btn').forEach(function(btn, i) { btn.classList.toggle('is-selected', i === oi); });
       updateSubmitBtn();
     }
-
     function updateSubmitBtn() {
       var answered = userAnswers.filter(function(a) { return a !== null; }).length;
       document.getElementById('submitBtn').textContent =
         answered === QUESTIONS.length ? 'Submit Quiz' : 'Submit Quiz (' + answered + ' / ' + QUESTIONS.length + ' answered)';
     }
-
     function submitQuiz() {
       if (submitted) return;
       var answered = userAnswers.filter(function(a) { return a !== null; }).length;
@@ -1811,10 +1791,8 @@ function openQuizInNewTab(questions, quizTitle) {
       submitted = true;
       document.getElementById('submitBtn').disabled = true;
       document.getElementById('submitBtn').textContent = 'Submitted!';
-
       var correctCount = 0;
       var wrongItems = [];
-
       QUESTIONS.forEach(function(q, qi) {
         var chosen = userAnswers[qi];
         var isCorrect = chosen !== null && chosen === q.correct;
@@ -1822,47 +1800,38 @@ function openQuizInNewTab(questions, quizTitle) {
         var card = document.getElementById('qcard-' + qi);
         var fb   = document.getElementById('fb-' + qi);
         document.querySelectorAll('#opts-' + qi + ' .opt-btn').forEach(function(b) { b.disabled = true; });
-
         if (chosen === null) {
           card.classList.add('wrong-card');
-          fb.textContent = '— Not answered';
-          fb.className = 'q-feedback visible wrong-fb';
+          fb.textContent = '— Not answered'; fb.className = 'q-feedback visible wrong-fb';
           if (q.correct >= 0) { var cb = document.getElementById('opt-' + qi + '-' + q.correct); if (cb) cb.classList.add('show-correct'); }
           wrongItems.push({ qi: qi, q: q, chosen: null });
         } else if (isCorrect) {
           card.classList.add('correct-card');
           var cb2 = document.getElementById('opt-' + qi + '-' + chosen);
           if (cb2) { cb2.classList.remove('is-selected'); cb2.classList.add('selected-correct'); }
-          fb.textContent = '✅ Correct!';
-          fb.className = 'q-feedback visible correct-fb';
+          fb.textContent = '✅ Correct!'; fb.className = 'q-feedback visible correct-fb';
         } else {
           card.classList.add('wrong-card');
           var wb = document.getElementById('opt-' + qi + '-' + chosen);
           if (wb) { wb.classList.remove('is-selected'); wb.classList.add('selected-wrong'); }
           if (q.correct >= 0) { var cb3 = document.getElementById('opt-' + qi + '-' + q.correct); if (cb3) cb3.classList.add('show-correct'); }
           var correctLetter = q.correct >= 0 ? ' — correct answer: ' + q.options[q.correct].letter : '';
-          fb.textContent = '❌ Wrong' + correctLetter;
-          fb.className = 'q-feedback visible wrong-fb';
+          fb.textContent = '❌ Wrong' + correctLetter; fb.className = 'q-feedback visible wrong-fb';
           wrongItems.push({ qi: qi, q: q, chosen: chosen });
         }
         fb.style.display = 'block';
       });
-
       showResults(correctCount, wrongItems);
     }
-
     function showResults(correctCount, wrongItems) {
       var total    = QUESTIONS.length;
       var pct      = Math.round((correctCount / total) * 100);
       var passed   = pct >= 70;
       var barClass = pct >= 80 ? 'high' : pct >= 60 ? 'mid' : 'low';
-      var verdictText =
-        pct === 100 ? '🎉 Perfect score! Outstanding work!' :
-        pct >= 80   ? '🌟 Great job! You really know this material.' :
-        pct >= 70   ? '👍 Good work — just a few to review.' :
-        pct >= 50   ? '📖 Decent effort, but some gaps to fill.' :
-                      "💪 Keep studying — you'll get there!";
-
+      var verdictText = pct === 100 ? '🎉 Perfect score! Outstanding work!' :
+        pct >= 80 ? '🌟 Great job! You really know this material.' :
+        pct >= 70 ? '👍 Good work — just a few to review.' :
+        pct >= 50 ? '📖 Decent effort, but some gaps to fill.' : "💪 Keep studying — you'll get there!";
       document.getElementById('summaryCard').innerHTML =
         '<div class="score-big ' + (passed ? 'pass' : 'fail') + '">' + pct + '%</div>'
         + '<p class="score-label">' + correctCount + ' of ' + total + ' correct</p>'
@@ -1870,47 +1839,34 @@ function openQuizInNewTab(questions, quizTitle) {
         + '<div class="chips-row"><span class="chip correct-chip">✅ Correct: ' + correctCount + '</span><span class="chip wrong-chip">❌ Wrong: ' + (total - correctCount) + '</span><span class="chip pct-chip">Score: ' + pct + '%</span></div>'
         + '<p class="verdict-msg">' + verdictText + '</p>'
         + '<button class="retry-btn" onclick="retryQuiz()">↺ Try Again</button>';
-
       var panel = document.getElementById('resultsPanel');
       panel.classList.add('visible');
       setTimeout(function() { var bar = document.getElementById('scoreBarFill'); if (bar) bar.style.width = pct + '%'; }, 100);
       panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
-
       var reviewWrap = document.getElementById('wrongReview');
       if (wrongItems.length > 0) {
         reviewWrap.innerHTML = '<p class="wrong-review-title">❌ Questions you got wrong</p>'
           + wrongItems.map(function(item) {
-            var yourAns = item.chosen !== null
-              ? item.q.options[item.chosen].letter + '. ' + item.q.options[item.chosen].text
-              : 'Not answered';
-            var correctAns = item.q.correct >= 0
-              ? item.q.options[item.q.correct].letter + '. ' + item.q.options[item.q.correct].text
-              : 'N/A';
-            return '<div class="review-item">'
-              + '<p class="review-q">Q' + (item.qi + 1) + '. ' + esc(item.q.q) + '</p>'
+            var yourAns = item.chosen !== null ? item.q.options[item.chosen].letter + '. ' + item.q.options[item.chosen].text : 'Not answered';
+            var correctAns = item.q.correct >= 0 ? item.q.options[item.q.correct].letter + '. ' + item.q.options[item.q.correct].text : 'N/A';
+            return '<div class="review-item"><p class="review-q">Q' + (item.qi + 1) + '. ' + esc(item.q.q) + '</p>'
               + '<div class="review-row"><span class="review-label your">Your answer:</span><span class="review-val">' + esc(yourAns) + '</span></div>'
-              + '<div class="review-row"><span class="review-label right">Correct:</span><span class="review-val">' + esc(correctAns) + '</span></div>'
-              + '</div>';
+              + '<div class="review-row"><span class="review-label right">Correct:</span><span class="review-val">' + esc(correctAns) + '</span></div></div>';
           }).join('');
       } else {
         reviewWrap.innerHTML = '<p style="text-align:center;color:#4ade80;font-size:1rem;margin-top:8px;">🎉 You got every question right!</p>';
       }
     }
-
     function retryQuiz() {
-      submitted = false;
-      userAnswers.fill(null);
+      submitted = false; userAnswers.fill(null);
       document.getElementById('submitBtn').disabled = false;
       document.getElementById('submitBtn').textContent = 'Submit Quiz';
       document.getElementById('resultsPanel').classList.remove('visible');
       document.getElementById('summaryCard').innerHTML = '';
       document.getElementById('wrongReview').innerHTML = '';
-      build();
-      window.scrollTo({ top: 0, behavior: 'smooth' });
+      build(); window.scrollTo({ top: 0, behavior: 'smooth' });
     }
-
-    build();
-    updateSubmitBtn();
+    build(); updateSubmitBtn();
   <\/script>
 </body>
 </html>`;
@@ -1933,17 +1889,14 @@ document.getElementById("flashcardBtn").onclick = () => runToolFull(
 STRICT RULES:
 - One card per fact. If there are 40 facts, make 40 cards.
 - Questions: specific and exam-style.
-- Answers: MAX 1 sentence or 3–5 word list.
+- Answers: MAX 1 sentence or 3-5 word list.
 - NO vague questions. NO filler, preamble, or commentary. Output ONLY the cards.
 
 EXACT FORMAT:
 Q: [question]
 A: [answer]`, "flashcardBtn", renderFlashcards
 );
-document.getElementById("quizBtn").onclick = () => {
-  // The default quiz button now opens the Quiz Manager
-  showQuizManager();
-};
+document.getElementById("quizBtn").onclick = () => { showQuizManager(); };
 
 // =========================
 // CHAT
