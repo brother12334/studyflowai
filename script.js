@@ -636,7 +636,7 @@ async function extractText(file) {
 // =========================
 // CHUNKING
 // =========================
-function chunkText(text, fileName, size = 1200) {
+function chunkText(text, fileName, size = 2000) {
   const chunks = []; let page = 1;
   for (let i = 0; i < text.length; i += size) {
     chunks.push({ text: text.slice(i, i + size), source: fileName, page }); page++;
@@ -658,7 +658,7 @@ function getRelevantChunks(question) {
 
 function getAllChunksContext() {
   if (!currentSubject || !currentSubject.chunks.length) return "";
-  const MAX_CHARS = 12000;
+  const MAX_CHARS = 120000;
   const byFile = {};
   for (const chunk of currentSubject.chunks) {
     const src = chunk.source || "unknown";
@@ -861,7 +861,6 @@ async function mapReduceAI(taskPrompt, systemPrompt, mode) {
   const batches    = [];
   for (let i = 0; i < context.length; i += BATCH_SIZE - OVERLAP) {
     batches.push(context.slice(i, i + BATCH_SIZE));
-    if (i + BATCH_SIZE >= context.length) break;
   }
 
   const outputEl = document.getElementById("output");
