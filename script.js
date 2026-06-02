@@ -681,31 +681,35 @@ function looksComplete(text, mode) {
 
 // =========================
 // COVERAGE SELF-CHECK
+// — Only runs for flashcards, never for quiz when a target count is set.
+// — MAX 1 pass to prevent runaway gap-finding loops.
 // =========================
 async function selfCheckCoverage(generatedText, materialContext, mode) {
   const label  = mode === "flashcard" ? "flashcards" : "quiz questions";
-  const prompt = `You are a thorough study assistant auditing a set of ${label}.
+  const prompt = `You are a study assistant auditing a set of ${label}.
 
 Below is the STUDY MATERIAL followed by the GENERATED ${label.toUpperCase()}.
 
 Your job:
-1. List every distinct topic, concept, term, date, formula, and process in the study material.
+1. List every distinct topic, concept, term, and key point in the study material.
 2. Check whether the generated ${label} cover each one.
 3. Return ONLY a JSON object — no preamble, no markdown fences:
 {"complete": true/false, "missing": ["topic 1", "topic 2", ...]}
 
+Be conservative — only flag a topic as missing if it is completely absent. Do NOT flag partial coverage. Keep the missing list short and specific.
+
 STUDY MATERIAL:
-${materialContext.slice(0, 8000)}
+${materialContext.slice(0, 6000)}
 
 GENERATED ${label.toUpperCase()}:
-${generatedText.slice(0, 6000)}`;
+${generatedText.slice(0, 5000)}`;
 
   try {
     const res = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: { "Content-Type": "application/json", "x-api-key": CLAUDE_API_KEY, "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true" },
-      body: JSON.stringify({ model: CLAUDE_MODEL, max_tokens: 1000,
-        system: "You are a coverage auditor. Respond ONLY with a valid JSON object. No markdown, no explanation.",
+      body: JSON.stringify({ model: CLAUDE_MODEL, max_tokens: 600,
+        system: "You are a coverage auditor. Respond ONLY with a valid JSON object. No markdown, no explanation. Be conservative — only flag truly missing topics.",
         messages: [{ role: "user", content: prompt }]
       })
     });
@@ -733,7 +737,7 @@ Only use information from the study material. Do not skip any topic.
 
 MISSING TOPICS:\n${topicList}
 
-STUDY MATERIAL:\n${materialContext.slice(0, 10000)}
+STUDY MATERIAL:\n${materialContext.slice(0, 8000)}
 
 ${formatInstructions}`;
 
@@ -756,41 +760,44 @@ ${formatInstructions}`;
 
 // =========================
 // COVERAGE LOOP
+// — MAX 1 pass regardless of mode.
+// — Skipped entirely for quiz when a specific count was requested (hasTargetCount=true).
+// — For flashcards: 1 pass only, conservative gap detection.
 // =========================
-async function runCoverageLoop(result, context, mode, outputEl) {
+async function runCoverageLoop(result, context, mode, outputEl, hasTargetCount = false) {
   if (!mode) return result;
-  const MAX_ROUNDS = 3;
 
-  for (let round = 0; round < MAX_ROUNDS; round++) {
-    outputEl.innerHTML = `<p style="opacity:0.5">🔍 Checking coverage (pass ${round + 1} of ${MAX_ROUNDS})...</p>`;
-    const check = await selfCheckCoverage(result, context, mode);
+  // Never run coverage loop for quizzes with a target count — it's what causes ballooning
+  if (mode === "quiz" && hasTargetCount) return result;
 
-    if (check.complete || check.missing.length === 0) {
-      showToast("✅ Coverage verified — nothing missed!");
-      break;
-    }
+  outputEl.innerHTML = `<p style="opacity:0.5">🔍 Checking coverage (1 pass)...</p>`;
+  const check = await selfCheckCoverage(result, context, mode);
 
-    const gapCount = check.missing.length;
-    showToast(`⚠️ Found ${gapCount} uncovered topic${gapCount !== 1 ? "s" : ""} — filling gaps...`, "#facc15");
-    outputEl.innerHTML = `<p style="opacity:0.5">➕ Generating ${gapCount} missing topic${gapCount !== 1 ? "s" : ""}...</p>`;
-
-    const extra = await generateMissingContent(check.missing, context, mode);
-    if (!extra) break;
-
-    if (mode === "quiz") {
-      const existingCount = (result.match(/^\d+\./gm) || []).length;
-      let counter = existingCount + 1;
-      const renumbered = extra.replace(/^\d+\./gm, () => `${counter++}.`);
-      result = result + "\n\n" + renumbered;
-    } else {
-      result = result + "\n\n" + extra;
-    }
-
-    if (round === MAX_ROUNDS - 1 && gapCount > 0) {
-      showToast(`ℹ️ Some topics may still need manual review.`, "#888");
-    }
+  if (check.complete || check.missing.length === 0) {
+    showToast("✅ Coverage verified!");
+    return result;
   }
 
+  // Cap missing topics at 10 to prevent explosion
+  const cappedMissing = check.missing.slice(0, 10);
+  const gapCount = cappedMissing.length;
+
+  showToast(`⚠️ Found ${gapCount} uncovered topic${gapCount !== 1 ? "s" : ""} — filling gaps...`, "#facc15");
+  outputEl.innerHTML = `<p style="opacity:0.5">➕ Adding ${gapCount} missing topic${gapCount !== 1 ? "s" : ""}...</p>`;
+
+  const extra = await generateMissingContent(cappedMissing, context, mode);
+  if (!extra) return result;
+
+  if (mode === "quiz") {
+    const existingCount = (result.match(/^\d+\./gm) || []).length;
+    let counter = existingCount + 1;
+    const renumbered = extra.replace(/^\d+\./gm, () => `${counter++}.`);
+    result = result + "\n\n" + renumbered;
+  } else {
+    result = result + "\n\n" + extra;
+  }
+
+  // Single pass done — no further rounds
   return result;
 }
 
@@ -837,7 +844,7 @@ async function continueIfCutOff(result, originalContext, taskPrompt, systemPromp
 // =========================
 // MAP-REDUCE AI WITH COVERAGE CHECK
 // =========================
-async function mapReduceAI(taskPrompt, systemPrompt, mode) {
+async function mapReduceAI(taskPrompt, systemPrompt, mode, hasTargetCount = false) {
   const context    = getAllChunksContext();
   const BATCH_SIZE = 6000;
   const OVERLAP    = 300;
@@ -863,7 +870,7 @@ async function mapReduceAI(taskPrompt, systemPrompt, mode) {
     if (!res.ok) throw new Error(data?.error?.message || "API error");
     let result = data?.content?.[0]?.text?.trim() || "";
     result = await continueIfCutOff(result, batches[0], taskPrompt, systemPrompt, mode);
-    result = await runCoverageLoop(result, context, mode, outputEl);
+    result = await runCoverageLoop(result, context, mode, outputEl, hasTargetCount);
     return result;
   }
 
@@ -899,7 +906,7 @@ async function mapReduceAI(taskPrompt, systemPrompt, mode) {
   if (!reduceRes.ok) throw new Error(reduceData?.error?.message || "API error");
   let result = reduceData?.content?.[0]?.text?.trim() || "";
   result = await continueIfCutOff(result, combined, taskPrompt, systemPrompt, mode);
-  result = await runCoverageLoop(result, context, mode, outputEl);
+  result = await runCoverageLoop(result, context, mode, outputEl, hasTargetCount);
   return result;
 }
 
@@ -930,10 +937,10 @@ async function askAI(prompt, systemPrompt) {
 // =========================
 // CLAUDE API — FULL CONTEXT
 // =========================
-async function askAIFull(prompt, systemPrompt, mode) {
+async function askAIFull(prompt, systemPrompt, mode, hasTargetCount = false) {
   if (!currentSubject) return "Select a subject first.";
   if (!currentSubject.chunks.length) return "No study material uploaded yet. Add files first.";
-  try { return await mapReduceAI(prompt, systemPrompt, mode); }
+  try { return await mapReduceAI(prompt, systemPrompt, mode, hasTargetCount); }
   catch (err) { return `Error: ${err.message}`; }
 }
 
@@ -1442,6 +1449,40 @@ function parseQuiz(text) {
 }
 
 // =========================
+// DEDUPLICATE QUIZ QUESTIONS
+// — Removes questions that test the same core fact by checking
+//   for high word overlap between question texts.
+// =========================
+function deduplicateQuiz(questions) {
+  const seen = [];
+  const result = [];
+
+  for (const q of questions) {
+    const words = new Set(
+      q.q.toLowerCase()
+        .replace(/[^a-z0-9\s]/g, "")
+        .split(/\s+/)
+        .filter(w => w.length > 3)
+    );
+
+    let isDuplicate = false;
+    for (const seenWords of seen) {
+      const intersection = [...words].filter(w => seenWords.has(w));
+      const union = new Set([...words, ...seenWords]);
+      const similarity = intersection.length / union.size;
+      if (similarity > 0.5) { isDuplicate = true; break; }
+    }
+
+    if (!isDuplicate) {
+      seen.push(words);
+      result.push(q);
+    }
+  }
+
+  return result;
+}
+
+// =========================
 // QUIZ RENDER ENTRY
 // =========================
 function renderQuiz(text) {
@@ -1494,17 +1535,17 @@ function showQuizManager() {
             <option value="hard">Hard — application & analysis</option>
             <option value="mixed">Mixed difficulty</option>
           </select>
-          <select id="qmCount" style="padding:9px 12px;background:#161616;border:1px solid rgba(255,255,255,0.09);border-radius:9px;color:#aaa;font-size:0.88rem;font-family:inherit;outline:none;">
+          <select id="qmQuestionCount" style="padding:9px 12px;background:#161616;border:1px solid rgba(255,255,255,0.09);border-radius:9px;color:#aaa;font-size:0.88rem;font-family:inherit;outline:none;">
             <option value="15">~15 questions</option>
             <option value="25">~25 questions</option>
             <option value="40">~40 questions</option>
-            <option value="max">~60 questions (full coverage)</option>
+            <option value="max">Max coverage (~60)</option>
           </select>
         </div>
         <button id="qmGenerateBtn" onclick="generateNamedQuiz()" style="margin-top:16px;width:100%;padding:12px;background:#fff;color:#000;border:none;border-radius:10px;font-size:0.92rem;font-weight:700;cursor:pointer;font-family:inherit;transition:opacity 0.2s;">⚡ Generate Quiz</button>
       </div>
       <div>
-        <h3 style="margin:0 0 14px;font-size:0.9rem;font-weight:600;color:#aaa;text-transform:uppercase;letter-spacing:0.06em;">Saved Quizzes <span id="qmCount" style="color:#555;font-weight:400;">(${currentSubject.savedQuizzes.length})</span></h3>
+        <h3 style="margin:0 0 14px;font-size:0.9rem;font-weight:600;color:#aaa;text-transform:uppercase;letter-spacing:0.06em;">Saved Quizzes <span id="qmSavedCount" style="color:#555;font-weight:400;">(${currentSubject.savedQuizzes.length})</span></h3>
         <div id="qmSavedList"></div>
       </div>
     </div>`;
@@ -1517,7 +1558,10 @@ function showQuizManager() {
 function renderSavedQuizList() {
   const list = document.getElementById("qmSavedList");
   if (!list || !currentSubject) return;
-  document.getElementById("qmCount").textContent = `(${currentSubject.savedQuizzes.length})`;
+
+  // FIX: use the renamed id qmSavedCount (not qmCount) to avoid conflict with the select
+  const countEl = document.getElementById("qmSavedCount");
+  if (countEl) countEl.textContent = `(${currentSubject.savedQuizzes.length})`;
 
   if (!currentSubject.savedQuizzes.length) {
     list.innerHTML = `<p style="color:#444;font-size:0.85rem;text-align:center;padding:20px 0;">No saved quizzes yet. Create one above!</p>`;
@@ -1544,7 +1588,7 @@ function escHTML(str) {
 }
 
 // =========================
-// GENERATE NAMED QUIZ — FIXED
+// GENERATE NAMED QUIZ
 // =========================
 async function generateNamedQuiz() {
   if (!currentSubject) return;
@@ -1553,7 +1597,7 @@ async function generateNamedQuiz() {
   const nameEl         = document.getElementById("qmName");
   const instructionsEl = document.getElementById("qmInstructions");
   const diffEl         = document.getElementById("qmDifficulty");
-  const countEl        = document.getElementById("qmCount");
+  const countEl        = document.getElementById("qmQuestionCount"); // FIX: updated id
   const genBtn         = document.getElementById("qmGenerateBtn");
 
   const rawName     = (nameEl?.value || "").trim();
@@ -1562,6 +1606,10 @@ async function generateNamedQuiz() {
   const difficulty  = diffEl?.value || "standard";
   const countVal    = countEl?.value || "25";
 
+  // hasTargetCount = true for specific numbers, false for "max"
+  const hasTargetCount = countVal !== "max";
+  const targetCount    = hasTargetCount ? parseInt(countVal, 10) : 60;
+
   const difficultyText = {
     standard: "Use a mix of recall, comprehension, and application questions.",
     easy:     "Focus on straightforward recall and recognition. Questions should be accessible.",
@@ -1569,22 +1617,19 @@ async function generateNamedQuiz() {
     mixed:    "Include easy, medium, and hard questions in roughly equal proportions."
   }[difficulty];
 
-  const countText = countVal === "max"
-    ? "Generate as many questions as needed to cover every distinct fact ONCE — aim for approximately 60 questions for comprehensive material."
-    : `Generate exactly ${countVal} questions. Choose the ${countVal} most important distinct facts — no more, no fewer.`;
+  const countText = hasTargetCount
+    ? `Generate EXACTLY ${targetCount} questions. No more, no fewer. Choose the ${targetCount} most important distinct facts. If you reach ${targetCount} questions, STOP — do not continue.`
+    : `Generate as many questions as needed to cover every distinct fact ONCE — aim for approximately 60 questions for comprehensive material.`;
 
-  const basePrompt = `You are a quiz generator. Every question MUST come from the study material only. Do NOT use outside knowledge.
+  const basePrompt = `You are a quiz generator. Every question MUST come from the study material only.
 
-STEP 1 — Before writing a single question, mentally list ALL units/sections/topics present in the study material.
-STEP 2 — Allocate questions proportionally across ALL units so no unit is skipped or over-represented.
-STEP 3 — For each question slot, pick ONE distinct fact. That fact may not appear in any other question.
+HARD LIMIT: ${hasTargetCount ? `STOP at exactly ${targetCount} questions. Do NOT exceed ${targetCount}.` : "Cover all material, approximately 60 questions max."}
 
 ANTI-DUPLICATION RULES (strictly enforced):
-- Each concept, term, or fact appears in AT MOST ONE question.
-- Do NOT ask "what is X" AND "which of the following describes X" — that is the same fact twice.
+- Each concept or fact appears in AT MOST ONE question.
+- Do NOT ask "what is X" AND "which of the following describes X".
 - Do NOT rephrase the same fact as two different questions.
-- Do NOT ask about the same process from two different angles (e.g. both "where does glycolysis occur" and "what organelle is NOT needed for glycolysis" are the same fact).
-- After drafting all questions, scan for duplicates and remove any before outputting.
+- After drafting, scan for duplicates and remove them before outputting.
 
 QUESTION COUNT: ${countText}
 
@@ -1598,13 +1643,20 @@ B. [option]
 C. [option] (correct)
 D. [option]
 
-No preamble. No explanation. No section headers. Output questions only.`;
+No preamble. No explanation. No section headers. Output questions only. STOP after question ${hasTargetCount ? targetCount : 60}.`;
 
   if (genBtn) { genBtn.disabled = true; genBtn.textContent = "⏳ Generating…"; }
 
   try {
-    const result    = await askAIFull(basePrompt, undefined, "quiz");
-    const questions = parseQuiz(result);
+    // Pass hasTargetCount so the coverage loop is skipped for specific counts
+    const result = await askAIFull(basePrompt, undefined, "quiz", hasTargetCount);
+
+    // Parse, deduplicate, then hard-slice to the target count
+    let questions = parseQuiz(result);
+    questions = deduplicateQuiz(questions);
+    if (hasTargetCount && questions.length > targetCount) {
+      questions = questions.slice(0, targetCount);
+    }
 
     if (questions.length === 0) {
       showToast("Couldn't parse quiz output. Try again.", "#f87171");
