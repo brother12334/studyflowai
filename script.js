@@ -1498,7 +1498,7 @@ function showQuizManager() {
             <option value="15">~15 questions</option>
             <option value="25">~25 questions</option>
             <option value="40">~40 questions</option>
-            <option value="max">As many as possible</option>
+            <option value="max">~60 questions (full coverage)</option>
           </select>
         </div>
         <button id="qmGenerateBtn" onclick="generateNamedQuiz()" style="margin-top:16px;width:100%;padding:12px;background:#fff;color:#000;border:none;border-radius:10px;font-size:0.92rem;font-weight:700;cursor:pointer;font-family:inherit;transition:opacity 0.2s;">⚡ Generate Quiz</button>
@@ -1543,6 +1543,9 @@ function escHTML(str) {
   return String(str).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
 }
 
+// =========================
+// GENERATE NAMED QUIZ — FIXED
+// =========================
 async function generateNamedQuiz() {
   if (!currentSubject) return;
   if (!currentSubject.chunks.length) { showToast("Upload study files first.", "#f87171"); return; }
@@ -1557,7 +1560,7 @@ async function generateNamedQuiz() {
   const name        = rawName || `Quiz ${(currentSubject.savedQuizzes.length + 1)}`;
   const customInstr = (instructionsEl?.value || "").trim();
   const difficulty  = diffEl?.value || "standard";
-  const countVal    = countEl?.value || "15";
+  const countVal    = countEl?.value || "25";
 
   const difficultyText = {
     standard: "Use a mix of recall, comprehension, and application questions.",
@@ -1567,28 +1570,35 @@ async function generateNamedQuiz() {
   }[difficulty];
 
   const countText = countVal === "max"
-    ? "Generate as many questions as possible — cover every major concept."
-    : `Generate approximately ${countVal} questions.`;
+    ? "Generate as many questions as needed to cover every distinct fact ONCE — aim for approximately 60 questions for comprehensive material."
+    : `Generate exactly ${countVal} questions. Choose the ${countVal} most important distinct facts — no more, no fewer.`;
 
-  const basePrompt = `CRITICAL RULE: Every question and every answer option MUST come ONLY from the study material. Do NOT use any outside knowledge.
+  const basePrompt = `You are a quiz generator. Every question MUST come from the study material only. Do NOT use outside knowledge.
 
-You are reading the COMPLETE study material. Generate a multiple-choice quiz.
+STEP 1 — Before writing a single question, mentally list ALL units/sections/topics present in the study material.
+STEP 2 — Allocate questions proportionally across ALL units so no unit is skipped or over-represented.
+STEP 3 — For each question slot, pick ONE distinct fact. That fact may not appear in any other question.
 
-RULES:
-- ${countText}
-- ${difficultyText}
-- Each question must have exactly 4 options labelled A, B, C, D.
-- All answer options must be plausible distractors drawn from the material.
-- Mark the one correct answer by writing (correct) immediately after the option text.
-- No preamble, no explanation — output ONLY the numbered questions.
-${customInstr ? `\nADDITIONAL INSTRUCTIONS FROM USER:\n${customInstr}` : ""}
+ANTI-DUPLICATION RULES (strictly enforced):
+- Each concept, term, or fact appears in AT MOST ONE question.
+- Do NOT ask "what is X" AND "which of the following describes X" — that is the same fact twice.
+- Do NOT rephrase the same fact as two different questions.
+- Do NOT ask about the same process from two different angles (e.g. both "where does glycolysis occur" and "what organelle is NOT needed for glycolysis" are the same fact).
+- After drafting all questions, scan for duplicates and remove any before outputting.
 
-EXACT FORMAT — follow precisely, one blank line between questions:
-1. [Question text]
-A. [option text]
-B. [option text]
-C. [option text] (correct)
-D. [option text]`;
+QUESTION COUNT: ${countText}
+
+DIFFICULTY: ${difficultyText}
+${customInstr ? `\nUSER INSTRUCTIONS:\n${customInstr}` : ""}
+
+FORMAT — follow exactly, one blank line between questions:
+1. [Question]
+A. [option]
+B. [option]
+C. [option] (correct)
+D. [option]
+
+No preamble. No explanation. No section headers. Output questions only.`;
 
   if (genBtn) { genBtn.disabled = true; genBtn.textContent = "⏳ Generating…"; }
 
@@ -1618,7 +1628,7 @@ D. [option text]`;
     if (nameEl)         nameEl.value         = "";
     if (instructionsEl) instructionsEl.value = "";
     if (diffEl)         diffEl.value         = "standard";
-    if (countEl)        countEl.value        = "15";
+    if (countEl)        countEl.value        = "25";
 
   } catch (e) {
     showToast("Error generating quiz: " + e.message, "#f87171");
