@@ -662,8 +662,27 @@ function getAllChunksContext() {
 }
 
 // =========================
-// CUT-OFF DETECTION
+// QUIZ: looksComplete
+// Checks the last several non-empty lines for an option pattern,
+// not just the very last line — much more lenient and accurate.
 // =========================
+function quizLooksComplete(text, targetCount) {
+  const trimmed = text.trimEnd();
+  const lines   = trimmed.split("\n").map(l => l.trim()).filter(Boolean);
+  if (lines.length === 0) return false;
+
+  // Check if we've hit the target count
+  if (targetCount) {
+    const count = (trimmed.match(/^\d+[\.\)]\s/gm) || []).length;
+    if (count >= targetCount) return true;
+  }
+
+  // Look at last 6 non-empty lines for an option line (A/B/C/D)
+  const tail = lines.slice(-6);
+  return tail.some(l => /^[A-Da-d][\.\)]\s+.{3,}/.test(l));
+}
+
+// Generic looksComplete for flashcards / other modes
 function looksComplete(text, mode) {
   const trimmed = text.trimEnd();
   if (mode === "flashcard") {
@@ -671,19 +690,13 @@ function looksComplete(text, mode) {
     const last  = lines[lines.length - 1] || "";
     return last.match(/^A[:)]/i) !== null && last.length > 4;
   }
-  if (mode === "quiz") {
-    const lines = trimmed.split("\n").map(l => l.trim()).filter(Boolean);
-    const last  = lines[lines.length - 1] || "";
-    // A complete quiz ends on an answer option line like "D. something" or "D. something (correct)"
-    return last.match(/^[A-Da-d][\.\)]\s+.+/) !== null;
-  }
+  if (mode === "quiz") return quizLooksComplete(trimmed, null);
   return /[.!?\n]$/.test(trimmed) || trimmed.endsWith("</ul>") || trimmed.endsWith("</p>") || /^A[:)].+$/m.test(trimmed);
 }
 
 // =========================
 // COVERAGE SELF-CHECK
-// — Only runs for flashcards, never for quiz when a target count is set.
-// — MAX 1 pass to prevent runaway gap-finding loops.
+// Only runs for flashcards. Never for quiz.
 // =========================
 async function selfCheckCoverage(generatedText, materialContext, mode) {
   const label  = mode === "flashcard" ? "flashcards" : "quiz questions";
@@ -723,7 +736,7 @@ ${generatedText.slice(0, 5000)}`;
 }
 
 // =========================
-// GENERATE MISSING CONTENT
+// GENERATE MISSING FLASHCARD CONTENT
 // =========================
 async function generateMissingContent(missingTopics, materialContext, mode) {
   const isFC      = mode === "flashcard";
@@ -760,16 +773,10 @@ ${formatInstructions}`;
 }
 
 // =========================
-// COVERAGE LOOP
-// — MAX 1 pass regardless of mode.
-// — Skipped entirely for quiz when a specific count was requested (hasTargetCount=true).
-// — For flashcards: 1 pass only, conservative gap detection.
+// COVERAGE LOOP — flashcards only, 1 pass max
 // =========================
-async function runCoverageLoop(result, context, mode, outputEl, hasTargetCount = false) {
-  if (!mode) return result;
-
-  // Never run coverage loop for quizzes with a target count — it's what causes ballooning
-  if (mode === "quiz" && hasTargetCount) return result;
+async function runCoverageLoop(result, context, mode, outputEl) {
+  if (!mode || mode !== "flashcard") return result;
 
   outputEl.innerHTML = `<p style="opacity:0.5">🔍 Checking coverage (1 pass)...</p>`;
   const check = await selfCheckCoverage(result, context, mode);
@@ -779,7 +786,6 @@ async function runCoverageLoop(result, context, mode, outputEl, hasTargetCount =
     return result;
   }
 
-  // Cap missing topics at 10 to prevent explosion
   const cappedMissing = check.missing.slice(0, 10);
   const gapCount = cappedMissing.length;
 
@@ -789,21 +795,11 @@ async function runCoverageLoop(result, context, mode, outputEl, hasTargetCount =
   const extra = await generateMissingContent(cappedMissing, context, mode);
   if (!extra) return result;
 
-  if (mode === "quiz") {
-    const existingCount = (result.match(/^\d+\./gm) || []).length;
-    let counter = existingCount + 1;
-    const renumbered = extra.replace(/^\d+\./gm, () => `${counter++}.`);
-    result = result + "\n\n" + renumbered;
-  } else {
-    result = result + "\n\n" + extra;
-  }
-
-  // Single pass done — no further rounds
-  return result;
+  return result + "\n\n" + extra;
 }
 
 // =========================
-// CONTINUE IF CUT OFF — GENERIC (flashcards, summaries, etc.)
+// CONTINUE FLASHCARDS IF CUT OFF
 // =========================
 async function continueIfCutOff(result, originalContext, taskPrompt, systemPrompt, mode) {
   if (looksComplete(result, mode)) return result;
@@ -843,27 +839,109 @@ async function continueIfCutOff(result, originalContext, taskPrompt, systemPromp
 }
 
 // =========================
-// CONTINUE QUIZ IF CUT OFF
-// — Dedicated version for quiz generation that preserves question numbering
-//   and keeps asking the user if they want to continue until it looks done.
+// QUIZ GENERATION — NEW APPROACH
+//
+// Instead of map-reduce (which degrades quality), we:
+// 1. Send the FULL material directly in one large prompt (up to 28k chars)
+// 2. If material is larger, use overlapping windows and merge+dedup at end
+// 3. Use silent auto-continuation (no user prompts) with smart count tracking
+// 4. Hard-slice + dedup at the end — no coverage loop for quizzes
 // =========================
-async function continueQuizIfCutOff(result, originalContext, taskPrompt, systemPrompt, targetCount) {
-  if (looksComplete(result, "quiz")) return result;
 
-  const currentCount = (result.match(/^\d+\./gm) || []).length;
-  const userWantsContinue = confirm(
-    `⚠️ The quiz output looks like it was cut off (got ${currentCount} question${currentCount !== 1 ? "s" : ""} so far).\n\nClick OK to continue generating from where it stopped, or Cancel to keep what you have.`
-  );
-  if (!userWantsContinue) return result;
+// Max chars we send to the model in a single quiz generation call
+const QUIZ_WINDOW_SIZE = 28000;
+const QUIZ_OVERLAP     = 1000;
 
-  document.getElementById("output").innerHTML = `<p style="opacity:0.5">⏳ Continuing quiz generation...</p>`;
-  let fullResult  = result;
-  let attempts    = 0;
-  const MAX_CONTINUES = 6; // quizzes can be long, allow more attempts
+async function generateQuizFromMaterial(taskPrompt, systemPrompt, targetCount, hasTargetCount, onProgress) {
+  const fullContext = getAllChunksContext();
 
-  while (!looksComplete(fullResult, "quiz") && attempts < MAX_CONTINUES) {
-    const soFarCount = (fullResult.match(/^\d+\./gm) || []).length;
-    const remaining  = targetCount ? targetCount - soFarCount : null;
+  // If material fits in one window — single call path (best quality)
+  if (fullContext.length <= QUIZ_WINDOW_SIZE) {
+    onProgress("⏳ Generating quiz from full material...");
+    return await generateQuizWindow(fullContext, taskPrompt, systemPrompt, targetCount, hasTargetCount);
+  }
+
+  // Multi-window path: overlapping windows, merge + dedup at end
+  const windows = [];
+  for (let i = 0; i < fullContext.length; i += QUIZ_WINDOW_SIZE - QUIZ_OVERLAP) {
+    windows.push(fullContext.slice(i, i + QUIZ_WINDOW_SIZE));
+    if (i + QUIZ_WINDOW_SIZE >= fullContext.length) break;
+  }
+
+  // How many questions per window (distribute evenly, minimum 5 per window)
+  const perWindow = hasTargetCount
+    ? Math.max(5, Math.ceil(targetCount / windows.length))
+    : Math.ceil(60 / windows.length);
+
+  let allQuestions = [];
+  for (let i = 0; i < windows.length; i++) {
+    onProgress(`⏳ Generating from section ${i + 1} of ${windows.length}...`);
+    const windowTarget = hasTargetCount
+      ? Math.min(perWindow, targetCount - allQuestions.length)
+      : perWindow;
+    if (windowTarget <= 0) break;
+
+    // Build a window-specific prompt with correct numbering offset
+    const offset       = allQuestions.length + 1;
+    const windowPrompt = buildQuizPrompt(taskPrompt, windowTarget, true, offset);
+    const raw = await callQuizAPI(windows[i], windowPrompt, systemPrompt, windowTarget, true);
+    const parsed = parseQuiz(raw);
+    allQuestions.push(...parsed);
+
+    // Early exit if we've hit the target
+    if (hasTargetCount && allQuestions.length >= targetCount) break;
+  }
+
+  // Renumber sequentially
+  return renumberQuizQuestions(allQuestions);
+}
+
+// Build the quiz generation prompt with correct count instruction
+function buildQuizPrompt(baseInstructions, targetCount, isWindow, startNumber) {
+  const countLine = targetCount
+    ? `Generate EXACTLY ${targetCount} questions numbered from ${startNumber || 1}. Stop after question ${(startNumber || 1) + targetCount - 1}.`
+    : `Generate approximately 60 questions. Stop when all material is covered.`;
+
+  return `${baseInstructions}
+
+QUESTION COUNT FOR THIS SECTION: ${countLine}
+
+Start numbering from ${startNumber || 1}.`;
+}
+
+// Single quiz generation call with auto-continuation (no user prompts)
+async function callQuizAPI(materialContext, taskPrompt, systemPrompt, targetCount, isWindow) {
+  let result   = "";
+  let attempts = 0;
+  const MAX    = 6;
+
+  // Initial call
+  try {
+    const res = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-api-key": CLAUDE_API_KEY, "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true" },
+      body: JSON.stringify({
+        model: CLAUDE_MODEL,
+        max_tokens: 8000,
+        system: systemPrompt,
+        messages: [{ role: "user", content: `SUBJECT: ${currentSubject.name}\n\nSTUDY MATERIAL:\n${materialContext}\n\nTASK:\n${taskPrompt}` }]
+      })
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data?.error?.message || "API error");
+    result = (data?.content?.[0]?.text || "").replace(/<think>[\s\S]*?<\/think>/gi, "").trim();
+  } catch (e) { console.error("Quiz API initial call error:", e); return ""; }
+
+  // Auto-continue silently until complete or target reached
+  while (attempts < MAX) {
+    const count = (result.match(/^\d+[\.\)]\s/gm) || []).length;
+
+    // Done if we hit target or output looks complete
+    if (targetCount && count >= targetCount) break;
+    if (quizLooksComplete(result, targetCount)) break;
+
+    const remaining = targetCount ? targetCount - count : null;
+    attempts++;
 
     try {
       const contRes = await fetch("https://api.anthropic.com/v1/messages", {
@@ -872,10 +950,10 @@ async function continueQuizIfCutOff(result, originalContext, taskPrompt, systemP
         body: JSON.stringify({
           model: CLAUDE_MODEL,
           max_tokens: 8000,
-          system: systemPrompt || "You are a quiz generator. Continue the quiz exactly where it left off. Do NOT repeat any questions already written. Pick up the numbering from where the last question ended. Output questions only — no preamble.",
+          system: systemPrompt,
           messages: [{
             role: "user",
-            content: `SUBJECT: ${currentSubject.name}\n\nSTUDY MATERIAL:\n${originalContext.slice(0, 8000)}\n\nORIGINAL TASK:\n${taskPrompt}\n\n${remaining ? `You still need to write approximately ${remaining} more question${remaining !== 1 ? "s" : ""}. ` : ""}Continue from the last question below — do NOT repeat anything already written:\n\n${fullResult.slice(-2000)}`
+            content: `SUBJECT: ${currentSubject.name}\n\nSTUDY MATERIAL:\n${materialContext.slice(0, 12000)}\n\nYou were generating a quiz and got cut off after ${count} questions.${remaining ? ` You need ${remaining} more.` : ""} Continue from where you left off — do NOT repeat any questions. Pick up the numbering from question ${count + 1}:\n\n${result.slice(-2000)}`
           }]
         })
       });
@@ -883,24 +961,22 @@ async function continueQuizIfCutOff(result, originalContext, taskPrompt, systemP
       if (!contRes.ok) break;
       const continuation = (contData?.content?.[0]?.text || "").replace(/<think>[\s\S]*?<\/think>/gi, "").trim();
       if (!continuation) break;
-      fullResult += "\n" + continuation;
-      attempts++;
-      if (looksComplete(fullResult, "quiz")) break;
-      if (attempts < MAX_CONTINUES) {
-        const nowCount = (fullResult.match(/^\d+\./gm) || []).length;
-        const keepGoing = confirm(`⚠️ Still looks incomplete (${nowCount} questions so far). Continue again? (${MAX_CONTINUES - attempts} attempt${MAX_CONTINUES - attempts !== 1 ? "s" : ""} remaining)`);
-        if (!keepGoing) break;
-      }
-    } catch (err) { console.error("Quiz continue error:", err); break; }
+      result += "\n" + continuation;
+    } catch (e) { console.error("Quiz continuation error:", e); break; }
   }
-  return fullResult;
+
+  return result;
+}
+
+// Renumber parsed quiz questions sequentially starting from 1
+function renumberQuizQuestions(questions) {
+  return questions.map((q, i) => ({ ...q, _num: i + 1 }));
 }
 
 // =========================
-// MAP-REDUCE AI WITH COVERAGE CHECK
-// — Quiz gets its own cutoff handling; flashcards use the generic one.
+// FLASHCARD MAP-REDUCE (unchanged, still good for flashcards)
 // =========================
-async function mapReduceAI(taskPrompt, systemPrompt, mode, hasTargetCount = false, targetCount = null) {
+async function mapReduceFlashcards(taskPrompt, systemPrompt) {
   const context    = getAllChunksContext();
   const BATCH_SIZE = 6000;
   const OVERLAP    = 300;
@@ -910,9 +986,7 @@ async function mapReduceAI(taskPrompt, systemPrompt, mode, hasTargetCount = fals
   }
 
   const outputEl = document.getElementById("output");
-  const isQuiz   = mode === "quiz";
 
-  // ── Single batch path ──
   if (batches.length === 1) {
     outputEl.innerHTML = `<p style="opacity:0.5">⏳ Generating from material...</p>`;
     const res = await fetch("https://api.anthropic.com/v1/messages", {
@@ -926,20 +1000,12 @@ async function mapReduceAI(taskPrompt, systemPrompt, mode, hasTargetCount = fals
     const data = await res.json();
     if (!res.ok) throw new Error(data?.error?.message || "API error");
     let result = data?.content?.[0]?.text?.trim() || "";
-
-    // Use quiz-specific cutoff handler or generic one
-    if (isQuiz) {
-      result = await continueQuizIfCutOff(result, batches[0], taskPrompt, systemPrompt, targetCount);
-    } else {
-      result = await continueIfCutOff(result, batches[0], taskPrompt, systemPrompt, mode);
-    }
-
-    result = await runCoverageLoop(result, context, mode, outputEl, hasTargetCount);
+    result = await continueIfCutOff(result, batches[0], taskPrompt, systemPrompt, "flashcard");
+    result = await runCoverageLoop(result, context, "flashcard", outputEl);
     return result;
   }
 
-  // ── Multi-batch map phase ──
-  // For quiz: ask user if they want to continue reading each section that looks cut off
+  // Multi-batch
   let partialResults = [];
   for (let i = 0; i < batches.length; i++) {
     outputEl.innerHTML = `<p style="opacity:0.5">⏳ Reading section ${i + 1} of ${batches.length}...</p>`;
@@ -953,37 +1019,9 @@ async function mapReduceAI(taskPrompt, systemPrompt, mode, hasTargetCount = fals
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data?.error?.message || "API error");
-    let sectionResult = (data?.content?.[0]?.text?.trim() || "");
-
-    // For quiz: check if the section extraction was cut off and offer to continue
-    if (isQuiz && !looksComplete(sectionResult, undefined)) {
-      const wantContinue = confirm(
-        `⚠️ Reading section ${i + 1} of ${batches.length} looks like it may have been cut off.\n\nClick OK to continue reading this section, or Cancel to move on.`
-      );
-      if (wantContinue) {
-        outputEl.innerHTML = `<p style="opacity:0.5">⏳ Continuing to read section ${i + 1}...</p>`;
-        try {
-          const contRes = await fetch("https://api.anthropic.com/v1/messages", {
-            method: "POST",
-            headers: { "Content-Type": "application/json", "x-api-key": CLAUDE_API_KEY, "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true" },
-            body: JSON.stringify({ model: CLAUDE_MODEL, max_tokens: 3000,
-              system: "You are a study assistant. Continue listing bullet-point facts from where you left off. Do not repeat anything already listed.",
-              messages: [{ role: "user", content: `Continue extracting facts from this material section. Do not repeat. Pick up from:\n${sectionResult.slice(-800)}\n\nMATERIAL:\n${batches[i]}` }]
-            })
-          });
-          const contData = await contRes.json();
-          if (contRes.ok) {
-            const extra = (contData?.content?.[0]?.text?.trim() || "");
-            if (extra) sectionResult += "\n" + extra;
-          }
-        } catch (e) { console.warn("Section continue error:", e); }
-      }
-    }
-
-    partialResults.push(sectionResult);
+    partialResults.push((data?.content?.[0]?.text?.trim() || ""));
   }
 
-  // ── Reduce phase ──
   outputEl.innerHTML = `<p style="opacity:0.5">⏳ Combining all ${batches.length} sections...</p>`;
   const combined  = partialResults.map((r, i) => `--- Section ${i + 1} ---\n${r}`).join("\n\n");
   const reduceRes = await fetch("https://api.anthropic.com/v1/messages", {
@@ -997,20 +1035,13 @@ async function mapReduceAI(taskPrompt, systemPrompt, mode, hasTargetCount = fals
   const reduceData = await reduceRes.json();
   if (!reduceRes.ok) throw new Error(reduceData?.error?.message || "API error");
   let result = reduceData?.content?.[0]?.text?.trim() || "";
-
-  // Use quiz-specific cutoff handler or generic one
-  if (isQuiz) {
-    result = await continueQuizIfCutOff(result, combined, taskPrompt, systemPrompt, targetCount);
-  } else {
-    result = await continueIfCutOff(result, combined, taskPrompt, systemPrompt, mode);
-  }
-
-  result = await runCoverageLoop(result, context, mode, outputEl, hasTargetCount);
+  result = await continueIfCutOff(result, combined, taskPrompt, systemPrompt, "flashcard");
+  result = await runCoverageLoop(result, context, "flashcard", outputEl);
   return result;
 }
 
 // =========================
-// CLAUDE API — FOCUSED
+// CLAUDE API — FOCUSED (for chat/summary/etc)
 // =========================
 async function askAI(prompt, systemPrompt) {
   if (!currentSubject) return "Select a subject first.";
@@ -1034,12 +1065,12 @@ async function askAI(prompt, systemPrompt) {
 }
 
 // =========================
-// CLAUDE API — FULL CONTEXT
+// CLAUDE API — FULL CONTEXT (flashcards only now)
 // =========================
-async function askAIFull(prompt, systemPrompt, mode, hasTargetCount = false, targetCount = null) {
+async function askAIFull(prompt, systemPrompt, mode) {
   if (!currentSubject) return "Select a subject first.";
   if (!currentSubject.chunks.length) return "No study material uploaded yet. Add files first.";
-  try { return await mapReduceAI(prompt, systemPrompt, mode, hasTargetCount, targetCount); }
+  try { return await mapReduceFlashcards(prompt, systemPrompt); }
   catch (err) { return `Error: ${err.message}`; }
 }
 
@@ -1099,7 +1130,7 @@ async function runTool(prompt, btnId, renderer) {
 }
 
 // =========================
-// TOOL RUNNER FULL — map-reduce with coverage check
+// TOOL RUNNER FULL — flashcards only
 // =========================
 async function runToolFull(prompt, btnId, renderer) {
   if (!currentSubject) { alert("Select a subject first."); return; }
@@ -1111,7 +1142,6 @@ async function runToolFull(prompt, btnId, renderer) {
     hideEditPanel();
     showResultWithBar(btnId, renderer, currentSubject.cache[cacheKey]);
     if (btnId === "flashcardBtn") showEditPanel("flashcard");
-    else if (btnId === "quizBtn")  showEditPanel("quiz");
     return;
   }
   activeTool = btnId;
@@ -1120,10 +1150,8 @@ async function runToolFull(prompt, btnId, renderer) {
   document.getElementById("output").innerHTML = `<p style="opacity:0.5">⏳ Generating from full material...</p>`;
   hideEditPanel(); hideCacheBar();
 
-  const mode = btnId === "flashcardBtn" ? "flashcard" : btnId === "quizBtn" ? "quiz" : undefined;
-
   try {
-    const result = await askAIFull(prompt, undefined, mode);
+    const result = await askAIFull(prompt, undefined, "flashcard");
     if (cacheKey) { currentSubject.cache[cacheKey] = result; save(); }
     showResultWithBar(btnId, renderer, result);
     awardXP(10);
@@ -1566,7 +1594,7 @@ function deduplicateQuiz(questions) {
     for (const seenWords of seen) {
       const intersection = [...words].filter(w => seenWords.has(w));
       const union = new Set([...words, ...seenWords]);
-      const similarity = intersection.length / union.size;
+      const similarity = union.size > 0 ? intersection.length / union.size : 0;
       if (similarity > 0.5) { isDuplicate = true; break; }
     }
 
@@ -1684,7 +1712,8 @@ function escHTML(str) {
 }
 
 // =========================
-// GENERATE NAMED QUIZ
+// GENERATE NAMED QUIZ — REWRITTEN
+// Uses new generateQuizFromMaterial instead of mapReduceAI
 // =========================
 async function generateNamedQuiz() {
   if (!currentSubject) return;
@@ -1702,7 +1731,6 @@ async function generateNamedQuiz() {
   const difficulty  = diffEl?.value || "standard";
   const countVal    = countEl?.value || "25";
 
-  // hasTargetCount = true for specific numbers, false for "max"
   const hasTargetCount = countVal !== "max";
   const targetCount    = hasTargetCount ? parseInt(countVal, 10) : 60;
 
@@ -1713,43 +1741,46 @@ async function generateNamedQuiz() {
     mixed:    "Include easy, medium, and hard questions in roughly equal proportions."
   }[difficulty];
 
-  const countText = hasTargetCount
-    ? `Generate EXACTLY ${targetCount} questions. No more, no fewer. Choose the ${targetCount} most important distinct facts. If you reach ${targetCount} questions, STOP — do not continue.`
-    : `Generate as many questions as needed to cover every distinct fact ONCE — aim for approximately 60 questions for comprehensive material.`;
+  // Base task instructions (count injected per-window in generateQuizFromMaterial)
+  const baseTaskPrompt = `You are generating a multiple-choice quiz for the subject: ${currentSubject.name}.
 
-  const basePrompt = `You are a quiz generator. Every question MUST come from the study material only.
-
-HARD LIMIT: ${hasTargetCount ? `STOP at exactly ${targetCount} questions. Do NOT exceed ${targetCount}.` : "Cover all material, approximately 60 questions max."}
-
-ANTI-DUPLICATION RULES (strictly enforced):
-- Each concept or fact appears in AT MOST ONE question.
-- Do NOT ask "what is X" AND "which of the following describes X".
-- Do NOT rephrase the same fact as two different questions.
-- After drafting, scan for duplicates and remove them before outputting.
-
-QUESTION COUNT: ${countText}
+CRITICAL RULES:
+- Every question MUST come from the study material only. Do not invent facts.
+- Each concept appears in AT MOST ONE question — no rephrasing the same fact.
+- Every question must have exactly 4 options (A, B, C, D).
+- Mark exactly one correct answer per question with (correct) after the option text.
+- No preamble, no section headers, no explanation. Output questions only.
 
 DIFFICULTY: ${difficultyText}
 ${customInstr ? `\nUSER INSTRUCTIONS:\n${customInstr}` : ""}
 
-FORMAT — follow exactly, one blank line between questions:
-1. [Question]
+FORMAT (follow exactly, one blank line between questions):
+1. [Question text]
 A. [option]
 B. [option]
 C. [option] (correct)
-D. [option]
+D. [option]`;
 
-No preamble. No explanation. No section headers. Output questions only. STOP after question ${hasTargetCount ? targetCount : 60}.`;
+  const systemPrompt = `You are a quiz generator. Output ONLY numbered multiple-choice questions in the exact format specified. No preamble, no commentary, no section headers. Mark exactly one answer per question with (correct).`;
 
   if (genBtn) { genBtn.disabled = true; genBtn.textContent = "⏳ Generating…"; }
 
-  try {
-    // Pass targetCount so the quiz-specific cutoff handler knows the target
-    const result = await askAIFull(basePrompt, undefined, "quiz", hasTargetCount, targetCount);
+  const outputEl = document.getElementById("output");
 
-    // Parse, deduplicate, then hard-slice to the target count
-    let questions = parseQuiz(result);
-    questions = deduplicateQuiz(questions);
+  try {
+    // Use the new quiz generator
+    const rawQuestions = await generateQuizFromMaterial(
+      baseTaskPrompt,
+      systemPrompt,
+      targetCount,
+      hasTargetCount,
+      (msg) => { outputEl.innerHTML = `<p style="opacity:0.5">${msg}</p>`; }
+    );
+
+    // Parse and deduplicate
+    let questions = deduplicateQuiz(rawQuestions);
+
+    // Hard-slice to target
     if (hasTargetCount && questions.length > targetCount) {
       questions = questions.slice(0, targetCount);
     }
@@ -1763,7 +1794,7 @@ No preamble. No explanation. No section headers. Output questions only. STOP aft
     if (!currentSubject.savedQuizzes) currentSubject.savedQuizzes = [];
     currentSubject.savedQuizzes.push({
       id: Date.now(), name, instructions: customInstr, difficulty,
-      questions, rawText: result, createdAt: Date.now()
+      questions, createdAt: Date.now()
     });
     save();
 
@@ -1780,6 +1811,7 @@ No preamble. No explanation. No section headers. Output questions only. STOP aft
 
   } catch (e) {
     showToast("Error generating quiz: " + e.message, "#f87171");
+    console.error("Quiz generation error:", e);
   }
 
   if (genBtn) { genBtn.disabled = false; genBtn.textContent = "⚡ Generate Quiz"; }
